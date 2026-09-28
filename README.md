@@ -4,10 +4,6 @@ The python client for [kuvert](https://github.com/arkitektio/kuvert-server), the
 [Arkitekt](https://arkitekt.live) mail service: the mailboxes you linked, their
 folders and conversations, tasks over those conversations, and sending mail.
 
-> [!WARNING]
-> **Experimental.** kuvert (server and client) is one of the most experimental
-> Arkitekt services. Expect breaking changes.
-
 ## Installation
 
 ```sh
@@ -25,10 +21,10 @@ The client is injected by annotation. Add the service to your app and ask for
 `kuvert: Kuvert`:
 
 ```python
-from arkitekt import App
+from arkitekt import App, run
 from kuvert import Kuvert, kuvert_service
 
-app = App(services=[kuvert_service])
+app = App("mail-digest", "0.1.0", services=[kuvert_service])
 
 
 @app.action
@@ -36,6 +32,10 @@ async def unread_subjects(kuvert: Kuvert) -> list[str]:
     """The subjects of the unread conversations in my inboxes."""
     threads = await kuvert.alist_threads(filter={"unread": True, "folderRole": "INBOX"})
     return [thread.subject for thread in threads]
+
+
+if __name__ == "__main__":
+    run(app)
 ```
 
 Messages, threads, outgoing mail, mailboxes, tasks and task lists travel between
@@ -43,7 +43,20 @@ actions by id (`@kuvert/message`, `@kuvert/thread`, `@kuvert/outgoingmessage`,
 `@kuvert/mailaccount`, `@kuvert/task`, `@kuvert/tasklist`), so an action can take
 and return them directly, and a trigger on a kuvert signal hands them over.
 
+### From a script
+
+```python
+from arkitekt import easy
+from kuvert import kuvert_service
+
+with easy("my-script", kuvert_service) as kuvert:
+    for account in kuvert.list_mail_accounts():
+        print(account.email_address, account.unread_count)
+```
+
 ### Standalone
+
+Without arkitekt, build the client over a rath link of your own:
 
 ```python
 from kuvert import Kuvert
