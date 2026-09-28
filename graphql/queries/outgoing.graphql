@@ -1,0 +1,11 @@
+query GetOutgoingMessage($id: ID!) {
+  outgoingMessage(id: $id) {
+    ...OutgoingMessage
+  }
+}
+
+query ListOutbox($filter: OutgoingMessageFilter, $pagination: OffsetPaginationInput) {
+  outbox(filters: $filter, pagination: $pagination) {
+    ...OutgoingMessage
+  }
+}

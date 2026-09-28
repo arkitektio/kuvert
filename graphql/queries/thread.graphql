@@ -1,0 +1,34 @@
+query GetThread($id: ID!) {
+  thread(id: $id) {
+    ...Thread
+  }
+}
+
+query ListThreads(
+  $filter: ThreadFilter
+  $order: [ThreadOrder!]
+  $pagination: OffsetPaginationInput
+) {
+  threads(filters: $filter, ordering: $order, pagination: $pagination) {
+    ...ListThread
+  }
+}
+
+query CountThreads($filter: ThreadFilter) {
+  threadsCount(filters: $filter)
+}
+
+query SearchThreads(
+  $search: String
+  $values: [ID!]
+  $limit: Int = 10
+  $offset: Int = 0
+) {
+  options: threads(
+    filters: { search: $search, ids: $values }
+    pagination: { limit: $limit, offset: $offset }
+  ) {
+    value: id
+    label: subject
+  }
+}

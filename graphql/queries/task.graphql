@@ -1,0 +1,61 @@
+query GetTask($id: ID!) {
+  task(id: $id) {
+    ...Task
+  }
+}
+
+query ListTasks(
+  $filter: TaskFilter
+  $order: [TaskOrder!]
+  $pagination: OffsetPaginationInput
+) {
+  tasks(filters: $filter, ordering: $order, pagination: $pagination) {
+    ...ListTask
+  }
+}
+
+query CountTasks($filter: TaskFilter) {
+  tasksCount(filters: $filter)
+}
+
+query GetTaskList($id: ID!) {
+  taskList(id: $id) {
+    ...TaskList
+  }
+}
+
+query ListTaskLists($filter: TaskListFilter, $pagination: OffsetPaginationInput) {
+  taskLists(filters: $filter, pagination: $pagination) {
+    ...TaskList
+  }
+}
+
+query SearchTasks(
+  $search: String
+  $values: [ID!]
+  $limit: Int = 10
+  $offset: Int = 0
+) {
+  options: tasks(
+    filters: { search: $search, ids: $values }
+    pagination: { limit: $limit, offset: $offset }
+  ) {
+    value: id
+    label: title
+  }
+}
+
+query SearchTaskLists(
+  $search: String
+  $values: [ID!]
+  $limit: Int = 10
+  $offset: Int = 0
+) {
+  options: taskLists(
+    filters: { search: $search, ids: $values }
+    pagination: { limit: $limit, offset: $offset }
+  ) {
+    value: id
+    label: name
+  }
+}

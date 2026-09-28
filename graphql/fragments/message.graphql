@@ -1,0 +1,77 @@
+fragment Address on Address {
+  name
+  address
+}
+
+fragment Attachment on Attachment {
+  id
+  position
+  filename
+  contentType
+  size
+  contentId
+  inline
+  store {
+    ...BigFileStore
+  }
+}
+
+fragment ListMessage on Message {
+  id
+  subject
+  sender {
+    ...Address
+  }
+  date
+  receivedAt
+  snippet
+  flags
+  isRead
+  isFlagged
+  isAnswered
+  hasAttachments
+  syncState
+  account {
+    id
+  }
+  folder {
+    id
+    role
+  }
+  thread {
+    id
+  }
+  categories {
+    id
+    name
+    color
+  }
+}
+
+fragment Message on Message {
+  ...ListMessage
+  messageId
+  inReplyTo
+  references
+  textBody
+  hasRemoteImages
+  size
+  serverFlags
+  truncated
+  createdAt
+  replyTo {
+    ...Address
+  }
+  to {
+    ...Address
+  }
+  cc {
+    ...Address
+  }
+  bcc {
+    ...Address
+  }
+  attachments {
+    ...Attachment
+  }
+}

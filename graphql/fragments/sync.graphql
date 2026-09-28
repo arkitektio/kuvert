@@ -1,0 +1,19 @@
+fragment SyncResult on SyncResult {
+  created
+  updated
+  deleted
+  folders
+  more
+  account {
+    ...MailAccount
+  }
+}
+
+fragment MailboxSyncEvent on MailboxSyncEvent {
+  accountId
+  created
+  updated
+  deleted
+  more
+  folders
+}

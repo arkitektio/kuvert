@@ -1,0 +1,28 @@
+mutation CreateCategory(
+  $account: ID!
+  $name: String!
+  $color: String
+  $sync: CategorySync
+  $keyword: String
+) {
+  createCategory(input: { account: $account, name: $name, color: $color, sync: $sync, keyword: $keyword }) {
+    ...Category
+  }
+}
+
+mutation UpdateCategory(
+  $id: ID!
+  $name: String
+  $color: String
+  $sync: CategorySync
+  $keyword: String
+  $removeKeywords: Boolean
+) {
+  updateCategory(input: { id: $id, name: $name, color: $color, sync: $sync, keyword: $keyword, removeKeywords: $removeKeywords }) {
+    ...Category
+  }
+}
+
+mutation DeleteCategory($id: ID!, $removeKeywords: Boolean! = false) {
+  deleteCategory(id: $id, removeKeywords: $removeKeywords)
+}

@@ -1,0 +1,45 @@
+postgres:
+  db_name: kuvert
+  engine: django.db.backends.postgresql
+  host: db
+  password: hello_django
+  port: 5432
+  username: hello_django
+django:
+  admin:
+    email: admin@admin.com
+    password: admin
+    username: admin
+  debug: true
+  hosts:
+    - "*"
+  secret_key: ab94ec351412c22324b2f635e0d6b9dd
+authentikate:
+  # authentikate 4.0 requires an audience; "*" accepts a token minted for any
+  # service, which is fine for the throwaway test stack.
+  audience: "*"
+  issuers: []
+  static_tokens:
+    test:
+      sub: 1
+      iss: lok
+      roles:
+        - editor
+redis:
+  host: redis
+  port: 6379
+scopes:
+  kuvert_read: Read linked mailboxes and their mail
+  kuvert_write: Link mailboxes, sync, organize and send mail
+secrets:
+  # Written per run by tests/conftest.py; ./secrets is mounted read-only at /secrets.
+  key_path: /secrets/kuvert.fernet
+mail:
+  # GreenMail runs on the stack's private network with a self-signed certificate.
+  allowed_private_hosts:
+    - mail
+  tls_verify: false
+writeback:
+  # No undo window: a change reaches the mail server on the next push.
+  undo_seconds_moves: 0
+  undo_seconds_deletes: 0

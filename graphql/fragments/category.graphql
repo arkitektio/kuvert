@@ -1,0 +1,12 @@
+fragment Category on Category {
+  id
+  name
+  color
+  sync
+  keyword
+  createdAt
+  messageCount
+  account {
+    id
+  }
+}

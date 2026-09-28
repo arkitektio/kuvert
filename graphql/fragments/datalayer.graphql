@@ -1,0 +1,28 @@
+fragment BigFileStore on BigFileStore {
+  id
+  path
+  bucket
+  key
+  sizeBytes
+  originalFileName
+  contentType
+  presignedUrl
+}
+
+fragment BigFileUploadGrant on BigFileUploadGrant {
+  status
+  accessKey
+  secretKey
+  sessionToken
+  region
+  bucket
+  key
+  path
+  expiresIn
+  store
+  maxBytes
+  originalFileName
+  uploadFileName
+  uploadContentType
+  uploadFormField
+}

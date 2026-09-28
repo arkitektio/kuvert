@@ -1,0 +1,15 @@
+mutation RequestBigfileUpload($input: RequestBigFileUploadInput!) {
+  requestBigfileUpload(input: $input) {
+    ...BigFileUploadGrant
+  }
+}
+
+mutation FinishBigfileUpload(
+  $storeId: String!
+  $valid: Boolean
+) {
+  finishBigfileUpload(input: { storeId: $storeId, valid: $valid }) {
+    ...BigFileStore
+  }
+}
+

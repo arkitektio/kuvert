@@ -1,0 +1,41 @@
+query GetMessage($id: ID!) {
+  message(id: $id) {
+    ...Message
+  }
+}
+
+query GetMessageHtml($id: ID!, $allowRemote: Boolean! = false) {
+  message(id: $id) {
+    id
+    html(allowRemote: $allowRemote)
+  }
+}
+
+query ListMessages(
+  $filter: MessageFilter
+  $order: [MessageOrder!]
+  $pagination: OffsetPaginationInput
+) {
+  messages(filters: $filter, ordering: $order, pagination: $pagination) {
+    ...ListMessage
+  }
+}
+
+query CountMessages($filter: MessageFilter) {
+  messagesCount(filters: $filter)
+}
+
+query SearchMessages(
+  $search: String
+  $values: [ID!]
+  $limit: Int = 10
+  $offset: Int = 0
+) {
+  options: messages(
+    filters: { search: $search, ids: $values }
+    pagination: { limit: $limit, offset: $offset }
+  ) {
+    value: id
+    label: subject
+  }
+}

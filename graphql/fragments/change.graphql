@@ -1,0 +1,34 @@
+fragment MailChange on MailChange {
+  id
+  kind
+  state
+  add
+  remove
+  pushAfter
+  attempts
+  error
+  errorCode
+  createdAt
+  undoable
+  account {
+    id
+  }
+  originFolder {
+    id
+  }
+  targetFolder {
+    id
+  }
+  message {
+    id
+  }
+}
+
+fragment PushResult on PushResult {
+  pushed
+  pending
+  failed
+  account {
+    id
+  }
+}

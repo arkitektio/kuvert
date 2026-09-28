@@ -1,0 +1,28 @@
+fragment ListThread on Thread {
+  id
+  subject
+  lastMessageAt
+  messageCount
+  unread
+  flagged
+  hasAttachments
+  participants {
+    ...Address
+  }
+  account {
+    id
+  }
+  latestMessage {
+    ...ListMessage
+  }
+}
+
+fragment Thread on Thread {
+  ...ListThread
+  messages {
+    ...ListMessage
+  }
+  tasks {
+    ...ListTask
+  }
+}

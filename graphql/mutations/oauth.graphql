@@ -1,0 +1,28 @@
+mutation StartOAuthLink(
+  $provider: Provider!
+  $protocol: Protocol
+  $redirectUrl: String
+  $name: String
+  $account: ID
+  $loginHint: String
+) {
+  startOAuthLink(input: { provider: $provider, protocol: $protocol, redirectUrl: $redirectUrl, name: $name, account: $account, loginHint: $loginHint }) {
+    ...AuthSession
+  }
+}
+
+mutation CompleteOAuthLink($input: CompleteOAuthLinkInput!) {
+  completeOAuthLink(input: $input) {
+    ...DetailMailAccount
+  }
+}
+
+mutation ResumeOAuthLink($state: String!) {
+  resumeOAuthLink(state: $state) {
+    ...AuthSession
+  }
+}
+
+mutation CancelOAuthLink($state: String!) {
+  cancelOAuthLink(state: $state)
+}

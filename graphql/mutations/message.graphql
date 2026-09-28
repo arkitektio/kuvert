@@ -1,0 +1,61 @@
+mutation SetMessageFlags(
+  $messages: [ID!]!
+  $add: [String!]
+  $remove: [String!]
+) {
+  setMessageFlags(input: { messages: $messages, add: $add, remove: $remove }) {
+    ...ListMessage
+  }
+}
+
+mutation MarkMessagesRead(
+  $messages: [ID!]!
+  $read: Boolean
+) {
+  markMessagesRead(input: { messages: $messages, read: $read }) {
+    ...ListMessage
+  }
+}
+
+mutation MoveMessages($input: MoveMessagesInput!) {
+  moveMessages(input: $input) {
+    ...ListMessage
+  }
+}
+
+mutation CategorizeMessages(
+  $messages: [ID!]!
+  $add: [ID!]
+  $remove: [ID!]
+) {
+  categorizeMessages(input: { messages: $messages, add: $add, remove: $remove }) {
+    ...ListMessage
+  }
+}
+
+mutation UndoMailChanges($input: UndoMailChangesInput!) {
+  undoMailChanges(input: $input) {
+    ...ListMessage
+  }
+}
+
+mutation DeleteMessages(
+  $messages: [ID!]!
+  $permanent: Boolean
+) {
+  deleteMessages(input: { messages: $messages, permanent: $permanent }) {
+    deleted
+  }
+}
+
+mutation RevertMessagesToServer($messages: [ID!]!) {
+  revertMessagesToServer(messages: $messages) {
+    ...ListMessage
+  }
+}
+
+mutation RetryMailChanges($changes: [ID!]!) {
+  retryMailChanges(changes: $changes) {
+    ...MailChange
+  }
+}

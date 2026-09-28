@@ -1,0 +1,16 @@
+mutation SendMessage(
+  $account: ID!
+  $to: [RecipientInput!]
+  $cc: [RecipientInput!]
+  $bcc: [RecipientInput!]
+  $subject: String
+  $text: String
+  $html: String
+  $inReplyTo: ID
+  $attachments: [String!]
+) {
+  sendMessage(input: { account: $account, to: $to, cc: $cc, bcc: $bcc, subject: $subject, text: $text, html: $html, inReplyTo: $inReplyTo, attachments: $attachments }) {
+    ...OutgoingMessage
+  }
+}
+

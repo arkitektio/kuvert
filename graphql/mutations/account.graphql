@@ -1,0 +1,53 @@
+mutation CreateMailAccount(
+  $emailAddress: String!
+  $password: String!
+  $name: String
+  $displayName: String
+  $protocol: Protocol
+  $incoming: ServerInput
+  $smtp: ServerInput
+  $username: String
+  $smtpUsername: String
+  $smtpPassword: String
+  $saveSentCopy: Boolean
+  $popLeaveOnServer: Boolean
+  $visibility: Visibility
+) {
+  createMailAccount(input: { emailAddress: $emailAddress, password: $password, name: $name, displayName: $displayName, protocol: $protocol, incoming: $incoming, smtp: $smtp, username: $username, smtpUsername: $smtpUsername, smtpPassword: $smtpPassword, saveSentCopy: $saveSentCopy, popLeaveOnServer: $popLeaveOnServer, visibility: $visibility }) {
+    ...DetailMailAccount
+  }
+}
+
+mutation UpdateMailAccount($input: UpdateMailAccountInput!) {
+  updateMailAccount(input: $input) {
+    ...DetailMailAccount
+  }
+}
+
+mutation ShareMailAccount($input: ShareMailAccountInput!) {
+  shareMailAccount(input: $input) {
+    ...DetailMailAccount
+  }
+}
+
+mutation TestMailAccount($id: ID!) {
+  testMailAccount(id: $id) {
+    ...MailAccount
+  }
+}
+
+mutation DeleteMailAccount($id: ID!) {
+  deleteMailAccount(id: $id)
+}
+
+mutation SyncMailAccount($id: ID!, $folders: [ID!]) {
+  syncMailAccount(id: $id, folders: $folders) {
+    ...SyncResult
+  }
+}
+
+mutation PushMailChanges($account: ID!) {
+  pushMailChanges(account: $account) {
+    ...PushResult
+  }
+}

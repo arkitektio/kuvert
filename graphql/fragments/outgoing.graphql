@@ -1,0 +1,40 @@
+fragment RefusedRecipient on RefusedRecipient {
+  address
+  code
+  message
+}
+
+fragment OutgoingMessage on OutgoingMessage {
+  id
+  status
+  subject
+  textBody
+  htmlBody
+  messageId
+  savedToSent
+  error
+  errorCode
+  createdAt
+  sentAt
+  account {
+    id
+  }
+  inReplyTo {
+    id
+  }
+  to {
+    ...Address
+  }
+  cc {
+    ...Address
+  }
+  bcc {
+    ...Address
+  }
+  refused {
+    ...RefusedRecipient
+  }
+  attachments {
+    ...BigFileStore
+  }
+}

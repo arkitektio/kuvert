@@ -1,0 +1,5 @@
+subscription WatchMailboxSyncs {
+  mailboxSyncs {
+    ...MailboxSyncEvent
+  }
+}

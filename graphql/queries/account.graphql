@@ -1,0 +1,36 @@
+query GetMailAccount($id: ID!) {
+  mailAccount(id: $id) {
+    ...DetailMailAccount
+  }
+}
+
+query ListMailAccounts($filter: MailAccountFilter, $pagination: OffsetPaginationInput) {
+  mailAccounts(filters: $filter, pagination: $pagination) {
+    ...MailAccount
+  }
+}
+
+query MailPresets($address: String) {
+  mailPresets(address: $address) {
+    ...MailPreset
+  }
+}
+
+query OAuthProviders {
+  oauthProviders
+}
+
+query SearchMailAccounts(
+  $search: String
+  $values: [ID!]
+  $limit: Int = 10
+  $offset: Int = 0
+) {
+  options: mailAccounts(
+    filters: { search: $search, ids: $values }
+    pagination: { limit: $limit, offset: $offset }
+  ) {
+    value: id
+    label: emailAddress
+  }
+}

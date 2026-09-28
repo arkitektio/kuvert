@@ -1,0 +1,18 @@
+fragment MailFolder on MailFolder {
+  id
+  path
+  name
+  role
+  selectable
+  syncEnabled
+  existsOnServer
+  totalCount
+  unreadCount
+  serverUnreadCount
+  keywordsAllowed
+  backfillDone
+  lastSyncedAt
+  account {
+    id
+  }
+}

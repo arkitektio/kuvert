@@ -1,0 +1,6 @@
+mutation UpdateMailFolder($input: UpdateMailFolderInput!) {
+  updateMailFolder(input: $input) {
+    ...MailFolder
+  }
+}
+

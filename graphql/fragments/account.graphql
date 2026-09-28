@@ -1,0 +1,88 @@
+fragment MailAccount on MailAccount {
+  id
+  name
+  emailAddress
+  displayName
+  provider
+  status
+  visibility
+  protocol
+  authMethod
+  capabilities
+  lastSyncedAt
+  lastError
+  lastErrorCode
+  backfillDone
+  createdAt
+  isOwner
+  canSend
+  syncing
+  unreadCount
+  pendingChanges
+  failedChanges
+}
+
+fragment DetailMailAccount on MailAccount {
+  ...MailAccount
+  incomingHost
+  incomingPort
+  incomingSecurity
+  smtpHost
+  smtpPort
+  smtpSecurity
+  username
+  saveSentCopy
+  popLeaveOnServer
+  pushSeen
+  pushFlagged
+  pushKeywords
+  pushMoves
+  pushDeletes
+  serverSideFolders
+  sharedWith {
+    id
+    sub
+    preferredUsername
+  }
+  folders {
+    ...MailFolder
+  }
+}
+
+fragment MailPreset on MailPreset {
+  key
+  name
+  domains
+  provider
+  imap {
+    ...ServerSettings
+  }
+  pop3 {
+    ...ServerSettings
+  }
+  smtp {
+    ...ServerSettings
+  }
+  saveSentCopy
+  oauth
+  oauthConfigured
+  note
+}
+
+fragment ServerSettings on ServerSettings {
+  host
+  port
+  security
+}
+
+fragment AuthSession on AuthSession {
+  state
+  openUrl
+  expiresAt
+  finish
+  redirectUrl
+  provider
+  account {
+    ...MailAccount
+  }
+}

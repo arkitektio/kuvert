@@ -1,0 +1,11 @@
+query GetMailFolder($id: ID!) {
+  mailFolder(id: $id) {
+    ...MailFolder
+  }
+}
+
+query ListMailFolders($filter: MailFolderFilter, $pagination: OffsetPaginationInput) {
+  mailFolders(filters: $filter, pagination: $pagination) {
+    ...MailFolder
+  }
+}

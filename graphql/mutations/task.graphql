@@ -1,0 +1,85 @@
+mutation CreateTaskList(
+  $name: String!
+  $color: String
+  $position: Float
+) {
+  createTaskList(input: { name: $name, color: $color, position: $position }) {
+    ...TaskList
+  }
+}
+
+mutation UpdateTaskList($input: UpdateTaskListInput!) {
+  updateTaskList(input: $input) {
+    ...TaskList
+  }
+}
+
+mutation DeleteTaskList($id: ID!) {
+  deleteTaskList(id: $id)
+}
+
+mutation CreateTask(
+  $title: String!
+  $notes: String
+  $taskList: ID
+  $dueAt: DateTime
+  $pinned: Boolean
+  $position: Float
+  $externalKey: String
+  $threads: [ID!]
+  $link: ThreadLinkInput
+) {
+  createTask(input: { title: $title, notes: $notes, list: $taskList, dueAt: $dueAt, pinned: $pinned, position: $position, externalKey: $externalKey, threads: $threads, link: $link }) {
+    ...Task
+  }
+}
+
+mutation UpsertTask(
+  $externalKey: String!
+  $title: String!
+  $notes: String
+  $taskList: ID
+  $dueAt: DateTime
+  $pinned: Boolean
+  $threads: [ID!]
+  $link: ThreadLinkInput
+) {
+  upsertTask(input: { externalKey: $externalKey, title: $title, notes: $notes, list: $taskList, dueAt: $dueAt, pinned: $pinned, threads: $threads, link: $link }) {
+    ...Task
+  }
+}
+
+mutation UpdateTask($input: UpdateTaskInput!) {
+  updateTask(input: $input) {
+    ...Task
+  }
+}
+
+mutation SetTaskStatus($input: SetTaskStatusInput!) {
+  setTaskStatus(input: $input) {
+    ...ListTask
+  }
+}
+
+mutation SnoozeTasks($input: SnoozeTasksInput!) {
+  snoozeTasks(input: $input) {
+    ...ListTask
+  }
+}
+
+mutation DeleteTask($id: ID!) {
+  deleteTask(id: $id)
+}
+
+# Link conversations to the task `task_id`.
+mutation LinkThreads($taskId: ID!, $threads: [ID!]!, $link: ThreadLinkInput) {
+  linkThreads(input: { task: $taskId, threads: $threads, link: $link }) {
+    ...TaskThread
+  }
+}
+
+mutation UnlinkThreads($taskId: ID!, $threads: [ID!]!) {
+  unlinkThreads(input: { task: $taskId, threads: $threads }) {
+    ...Task
+  }
+}

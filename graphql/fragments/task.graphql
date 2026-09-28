@@ -1,0 +1,56 @@
+fragment TaskList on TaskList {
+  id
+  name
+  color
+  position
+  createdAt
+  openCount
+}
+
+fragment ListTask on Task {
+  id
+  title
+  notes
+  status
+  pinned
+  dueAt
+  snoozedUntil
+  snoozed
+  position
+  externalKey
+  completedAt
+  createdAt
+  updatedAt
+  threadCount
+  unreadCount
+  list {
+    id
+    name
+  }
+}
+
+fragment TaskThread on TaskThread {
+  id
+  source
+  confidence
+  reason
+  position
+  createdAt
+  task {
+    id
+  }
+  thread {
+    id
+    subject
+  }
+}
+
+fragment Task on Task {
+  ...ListTask
+  links {
+    ...TaskThread
+  }
+  threads {
+    ...ListThread
+  }
+}

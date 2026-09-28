@@ -1,0 +1,5 @@
+query ListMailChanges($filter: MailChangeFilter, $pagination: OffsetPaginationInput) {
+  mailChanges(filters: $filter, pagination: $pagination) {
+    ...MailChange
+  }
+}
