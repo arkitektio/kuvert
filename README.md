@@ -63,6 +63,11 @@ with kuvert:
     )
 ```
 
+Arguments the server defaults (`cc`, `bcc`, `attachments` of `send_message`,
+`notes`/`pinned` of `create_task`, …) are optional: **leave them out** rather
+than passing `None`. An explicit `None` is sent as `null`, which the server
+rejects for those fields.
+
 Changes to mail (flags, moves, deletes, categories) are local-first: they apply
 at once and reach the mail server when the mailbox next pushes.
 `list_mail_changes` shows what is still pending and `undo_mail_changes` takes a
