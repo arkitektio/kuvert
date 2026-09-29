@@ -40,16 +40,6 @@ def build_relative_path(*path: str) -> str:
     return os.path.join(os.path.dirname(__file__), *path)
 
 
-def _via_proxy(alias: object) -> dict[str, str]:
-    """``proxy=`` for a link, when the alias is only reachable through the mesh sidecar.
-
-    Empty otherwise, so the link keeps its default behaviour -- and a rath that
-    predates the ``proxy`` field still builds.
-    """
-    proxy = getattr(alias, "proxy", None)
-    return {"proxy": proxy} if proxy else {}
-
-
 registry = AppRegistry()
 """What kuvert brings to an app: its service, and the types it can send by id."""
 
@@ -76,11 +66,11 @@ def kuvert(
                 SplitLink(
                     left=AIOHttpLink(
                         endpoint_url=kuvert.to_http_path("graphql"),
-                        **_via_proxy(kuvert),
+                        proxy=kuvert.proxy,
                     ),
                     right=GraphQLWSLink(
                         ws_endpoint_url=kuvert.to_ws_path("graphql"),
-                        **_via_proxy(kuvert),
+                        proxy=kuvert.proxy,
                     ),
                     split=lambda o: o.node.operation != OperationType.SUBSCRIPTION,
                 ),
