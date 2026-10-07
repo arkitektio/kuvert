@@ -10,13 +10,29 @@ services:
       POSTGRES_MULTIPLE_DATABASES: kuvert
       POSTGRES_PASSWORD: hello_django
       POSTGRES_USER: hello_django
+  # Brings the database to the image's release, once, before the server is started: a
+  # service's own start only serves.
+  kuvert-migrate:
+    depends_on:
+    - db
+    image: jhnnsrs/kuvert:${KUVERT_SERVICE_TAG:-latest}
+    command: arkitekt-service run migrate
+    volumes:
+    - ./configs/kuvert.yaml:/workspace/config.yaml
+    # A Fernet key generated per run by tests/conftest.py (gitignored): never commit one.
+    - ./secrets:/secrets:ro
   kuvert:
     depends_on:
-    - redis
-    - db
-    - mail
+      redis:
+        condition: service_started
+      db:
+        condition: service_started
+      mail:
+        condition: service_started
+      kuvert-migrate:
+        condition: service_completed_successfully
     image: jhnnsrs/kuvert:${KUVERT_SERVICE_TAG:-latest}
-    command: bash run-debug.sh
+    command: arkitekt-service debug
     stop_grace_period: 1s
     ports:
     - "${KUVERT_HOST_PORT:-6890}:80"
