@@ -63,7 +63,7 @@ def test_defaulted_input_fields_are_optional_keywords() -> None:
         Kuvert.set_message_flags: {"messages"},
         Kuvert.categorize_messages: {"messages"},
         Kuvert.delete_messages: {"messages"},
-        Kuvert.create_mail_account: {"email_address", "password"},
+        Kuvert.create_mail_account: {"provider", "email_address", "password"},
         Kuvert.create_category: {"account", "name"},
     }.items():
         parameters = inspect.signature(method).parameters.values()

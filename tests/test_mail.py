@@ -9,6 +9,7 @@ from kuvert.api.schema import (
     MessageFilter,
     OutgoingStatus,
     Protocol,
+    ProviderCapability,
     RecipientInput,
     ServerInput,
     ThreadFilter,
@@ -17,6 +18,20 @@ from kuvert.kuvert import Kuvert
 
 from .conftest import GreenMail
 
+#: What the organization's admin sets up once: mailboxes are linked through a provider.
+PROVIDER_NAME = "GreenMail"
+
+
+def provider(kuvert: Kuvert) -> str:
+    """The stack's server provider (servers left to each link), set up on first use."""
+    for existing in kuvert.list_mail_providers():
+        if existing.name == PROVIDER_NAME:
+            return existing.id
+    return kuvert.create_server_provider(
+        name=PROVIDER_NAME,
+        capabilities=[ProviderCapability.SEND, ProviderCapability.SCHEDULED_SYNC],
+    ).id
+
 
 def link(
     kuvert: Kuvert, greenmail: GreenMail, address: str | None = None
@@ -24,6 +39,7 @@ def link(
     """A GreenMail mailbox, linked with its password."""
     address = address or greenmail.user()
     return kuvert.create_mail_account(
+        provider=provider(kuvert),
         email_address=address,
         password="secret",
         protocol=Protocol.IMAP,
@@ -58,6 +74,7 @@ def test_a_wrong_password_links_nothing(kuvert: Kuvert, greenmail: GreenMail) ->
 
     with pytest.raises(Exception, match="AUTH_FAILED"):
         kuvert.create_mail_account(
+            provider=provider(kuvert),
             email_address=address,
             password="wrong",
             incoming=ServerInput(**GreenMail.IMAP),

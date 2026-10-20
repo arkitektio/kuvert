@@ -16,8 +16,10 @@ query MailPresets($address: String) {
   }
 }
 
-query OAuthProviders {
-  oauthProviders
+query GetAuthSession($state: String!) {
+  authSession(state: $state) {
+    ...AuthSession
+  }
 }
 
 query SearchMailAccounts(

@@ -1,4 +1,4 @@
-directive @auth(required_scopes: [String!] = null, required_roles: [String!] = null, required_org_roles: [String!] = null) on FIELD_DEFINITION
+directive @auth(required_scopes: [String!], required_roles: [String!], required_org_roles: [String!], any_scope_of: [String!], any_role_of: [String!], any_org_role_of: [String!], allow_scoped: Boolean) on FIELD_DEFINITION
 
 directive @oneOf on INPUT_OBJECT
 
@@ -45,6 +45,12 @@ type Attachment @key(fields: "id", resolvable: true) {
   store: BigFileStore
 }
 
+"""How a started login finishes."""
+enum AuthFinish {
+  REDIRECT
+  POLL
+}
+
 """
 How the service logs in. PASSWORD: Username and (app) password; XOAUTH2: OAuth 2.0 access token (SASL XOAUTH2).
 """
@@ -53,23 +59,63 @@ enum AuthMethod {
   XOAUTH2
 }
 
+"""A Structure: what the login linked, so the app can open its page."""
+type AuthResult {
+  identifier: String!
+  id: ID!
+  label: String
+}
+
 """
-A started OAuth login: open `openUrl`; the provider redirects to `redirectUrl` with `?code&state`; call `completeOAuthLink` with them.
+A login at an external provider, the same shape in every service. Open `openUrl` in the user's browser; then, by `finish`: REDIRECT — the provider redirects to `redirectUrl` with `code` and `state`, call `completeAuth` with both; POLL — call `completeAuth` with the `state` every `interval` seconds until `status` is not PENDING.
 """
 type AuthSession {
+  """
+  Opaque, unguessable, single-use, stored server-side. THE handle of the login.
+  """
   state: String!
+  status: AuthStatus!
+  finish: AuthFinish!
+
+  """https. What the app opens in the user's browser."""
   openUrl: String!
+
+  """Until when the first approval can happen."""
   expiresAt: DateTime!
 
   """
-  How the login finishes: REDIRECT (catch the redirect, then `completeOAuthLink`).
+  REDIRECT: where the provider sends the browser back to (the relay URL).
   """
-  finish: String!
-  redirectUrl: String!
-  provider: Provider!
+  redirectUrl: String
 
-  """The mailbox this login re-links, if it does."""
-  account: MailAccount
+  """POLL: seconds between two completeAuth calls."""
+  interval: Int
+
+  """POLL: the code the user confirms on the provider's page."""
+  userCode: String
+
+  """Null until the first approval; then what is still awaited, e.g. MFA."""
+  step: String
+
+  """FAILED: machine-readable, the service's own error codes."""
+  errorCode: String
+
+  """FAILED: one sentence for the user."""
+  errorMessage: String
+
+  """
+  DONE: what was linked. May be set earlier when it already exists (a relink).
+  """
+  result: AuthResult
+}
+
+"""Where a login is."""
+enum AuthStatus {
+  PENDING
+  DONE
+  FAILED
+  EXPIRED
+  CANCELLED
 }
 
 """Temporary S3 credentials for reading a big file."""
@@ -207,10 +253,18 @@ enum CategorySync {
   KEYWORD
 }
 
-"""What the provider's redirect carried."""
-input CompleteOAuthLinkInput {
-  code: String!
+"""Finish (REDIRECT) or advance (POLL) a started login."""
+input CompleteAuthInput {
   state: String!
+
+  """REDIRECT: the `code` query parameter of the redirect. POLL: omitted."""
+  code: String = null
+
+  """
+  REDIRECT: the provider's `error` / `error_description`, when it refused.
+  """
+  error: String = null
+  errorDescription: String = null
 }
 
 """A new category of a mailbox."""
@@ -231,9 +285,11 @@ input CreateCategoryInput {
 }
 
 """
-A mailbox to link with a username and (app) password. Servers default to the preset of the address's provider when there is one (`mailPresets`).
+A mailbox to link with a username and (app) password, through one of the organization's IMAP providers. A provider with fixed servers takes only the login; otherwise servers default to the preset of the address's provider when there is one (`mailPresets`).
 """
 input CreateMailAccountInput {
+  """The IMAP provider to link through (see `mailProviders`)."""
+  provider: ID!
   emailAddress: String!
 
   """The (app) password. Stored encrypted, never returned."""
@@ -244,13 +300,19 @@ input CreateMailAccountInput {
 
   """The sender name of sent mail."""
   displayName: String = null
-  protocol: Protocol! = IMAP
 
-  """The IMAP or POP3 server; the preset's by default."""
+  """
+  How incoming mail is read: the provider's when it fixes the servers, else IMAP by default.
+  """
+  protocol: Protocol = null
+
+  """
+  The IMAP or POP3 server; the preset's by default. Not with a provider that fixes the servers.
+  """
   incoming: ServerInput = null
 
   """
-  The SMTP server; the preset's by default. Without one the mailbox cannot send.
+  The SMTP server; the preset's by default. Without one the mailbox cannot send. Not with a provider that fixes the servers.
   """
   smtp: ServerInput = null
 
@@ -264,13 +326,74 @@ input CreateMailAccountInput {
   smtpPassword: String = null
 
   """
-  Append sent mail to the Sent folder; the preset's choice by default (off for Gmail/Microsoft).
+  Append sent mail to the Sent folder; the provider's choice with fixed servers, else the preset's (off for Gmail/Microsoft).
   """
   saveSentCopy: Boolean = null
 
   """POP3: keep downloaded mail on the server."""
   popLeaveOnServer: Boolean! = true
   visibility: Visibility! = PRIVATE
+}
+
+"""
+A new Gmail or Microsoft provider: one OAuth client (a Google Cloud OAuth client, an Entra app registration).
+"""
+input CreateOAuthProviderInput {
+  """GMAIL or MICROSOFT."""
+  kind: Provider!
+
+  """What to call it, unique in the organization."""
+  name: String!
+
+  """The OAuth client id."""
+  clientId: String!
+
+  """
+  The client secret (a public client with PKCE has none). Stored encrypted and never returned.
+  """
+  clientSecret: String = null
+
+  """The redirect URLs registered for the client, the default first."""
+  redirectUrls: [String!]!
+
+  """
+  Microsoft: the Entra tenant (id or domain); `common` (any account) by default.
+  """
+  tenant: String = null
+
+  """
+  What to switch on; everything the kind can do by default (see `providerKinds`).
+  """
+  capabilities: [ProviderCapability!] = null
+}
+
+"""
+A new IMAP provider. With `incoming` (and `protocol`) its servers are fixed and members only give their login; without, each member names the servers (`mailPresets` fills in well-known ones).
+"""
+input CreateServerProviderInput {
+  """What to call it, unique in the organization."""
+  name: String!
+
+  """With fixed servers: how incoming mail is read."""
+  protocol: Protocol = null
+
+  """The fixed IMAP or POP3 server; omitted: members name their own."""
+  incoming: ServerInput = null
+
+  """
+  The fixed SMTP server (only with `incoming`); omitted with fixed servers: its mailboxes cannot send.
+  """
+  smtp: ServerInput = null
+
+  """
+  Whether its mailboxes append sent mail to Sent (off when the server files it itself).
+  """
+  saveSentCopy: Boolean! = true
+
+  """
+  What to switch on; everything the kind can do by default (see `providerKinds`).
+  """
+  capabilities: [ProviderCapability!] = null
 }
 
 """A new task, optionally with its conversations."""
@@ -324,6 +447,39 @@ type DeleteResult {
   deleted: Int!
 }
 
+"""
+One constraint on an object's descriptors, in the shape a rekuest port states its `requires` in -- so a picker hands a port's constraints on unchanged. `key` is one of the keys the structure declares (e.g. `@kuvert/has_attachments`); a key it does not declare is refused.
+"""
+input DescriptorConstraintInput {
+  """The descriptor key, e.g. `@kuvert/has_attachments`"""
+  key: String!
+
+  """
+  How the object's value is compared with `value`. MATCHES is equality, as EQUALS is
+  """
+  operator: DescriptorOperator!
+
+  """
+  The value compared against: a number for GTE and LTE, a list for IN and NOT_IN, true or false for EXISTS, the member looked for with CONTAINS
+  """
+  value: JSON = null
+}
+
+"""
+How a descriptor constraint compares the object's value with the stated one. The operators a rekuest port's `requires` and `provides` are written in, with the same meaning.
+"""
+enum DescriptorOperator {
+  EQUALS
+  MATCHES
+  NOT_EQUALS
+  GTE
+  LTE
+  EXISTS
+  CONTAINS
+  IN
+  NOT_IN
+}
+
 input FinishBigFileUploadInput {
   storeId: String!
   valid: Boolean! = true
@@ -343,6 +499,11 @@ enum FolderRole {
   FLAGGED
   OTHER
 }
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf).
+"""
+scalar JSON @specifiedBy(url: "https://ecma-international.org/wp-content/uploads/ECMA-404_2nd_edition_december_2017.pdf")
 
 """
 Put conversations into a task. A conversation already in it keeps its place; its link details are updated.
@@ -370,6 +531,11 @@ type MailAccount @key(fields: "id", resolvable: true) {
 
   """Who hosts the mailbox."""
   provider: Provider!
+
+  """
+  The organization's provider the mailbox was linked through (null: none any more; an admin has to set one up).
+  """
+  mailProvider: MailProvider
 
   """Where the mailbox is in its lifecycle."""
   status: MailAccountStatus!
@@ -467,11 +633,18 @@ type MailAccount @key(fields: "id", resolvable: true) {
   categories(filters: CategoryFilter, pagination: OffsetPaginationInput): [Category!]!
 
   """
+  The re-link of this mailbox still to be finished, when you started it and it is PENDING: continue it with `resumeAuth(state)`. Null otherwise.
+  """
+  pendingAuth: AuthSession
+
+  """
   Whether the caller linked the mailbox (and so may change its credentials, sharing, or delete it).
   """
   isOwner: Boolean!
 
-  """Whether the mailbox can send (it has an SMTP server)."""
+  """
+  Whether the mailbox can send: it has an SMTP server, and its provider is enabled with SEND switched on.
+  """
   canSend: Boolean!
 
   """
@@ -507,6 +680,7 @@ input MailAccountFilter {
   ids: [ID!]
   status: MailAccountStatus
   search: String
+  provider: ID
   mine: Boolean
 }
 
@@ -610,7 +784,7 @@ enum MailChangeState {
 }
 
 """
-What went wrong, for a client to offer a fix. Also stored as ``last_error_code``. NOT_CONFIGURED: The service is not configured for this (an OAuth client, the datalayer); AUTH_FAILED: The server refused the username or password; CONSENT_EXPIRED: The OAuth grant was revoked or ran out; link the mailbox again; CONNECTION_FAILED: The server could not be reached, or the connection broke; TLS_FAILED: The TLS handshake failed (certificate or protocol); TLS_REQUIRED: The mailbox asks for a connection without TLS, which is not allowed; HOST_NOT_ALLOWED: The host resolves to a private or internal address; SYNC_IN_PROGRESS: Another sync holds this mailbox right now; RATE_LIMITED: Synced too recently; try again later; SERVER_ERROR: The server answered a command with an error; SEND_REJECTED: The SMTP server refused the message or a recipient; UNSUPPORTED_BY_PROTOCOL: POP3 cannot do this (folders, flags on the server); MAILBOX_INACTIVE: The mailbox is disabled or needs new credentials; INVALID_STATE: The link state is unknown, used or belongs to someone else; CODE_EXPIRED: The link was not completed in time; PROVIDER_ERROR: The OAuth provider answered with an error; UNSUPPORTED_BY_POLICY: The mailbox is set not to change this on the server (its push settings); KEYWORDS_NOT_PERMITTED: The folder does not keep keywords (no \\* in PERMANENTFLAGS), the category stays local; MESSAGE_GONE: The message is no longer where the change expected it on the server; UNSAFE_EXPUNGE: Without UIDPLUS an expunge would also remove other deleted messages of the folder.
+What went wrong, for a client to offer a fix. Also stored as ``last_error_code``. NOT_CONFIGURED: The organization or the service is not set up for this (no usable provider, the datalayer); AUTH_FAILED: The server refused the username or password; CONSENT_EXPIRED: The OAuth grant was revoked or ran out; link the mailbox again; CONNECTION_FAILED: The server could not be reached, or the connection broke; TLS_FAILED: The TLS handshake failed (certificate or protocol); TLS_REQUIRED: The mailbox asks for a connection without TLS, which is not allowed; HOST_NOT_ALLOWED: The host resolves to a private or internal address; SYNC_IN_PROGRESS: Another sync holds this mailbox right now; RATE_LIMITED: Synced too recently; try again later; SERVER_ERROR: The server answered a command with an error; SEND_REJECTED: The SMTP server refused the message or a recipient; UNSUPPORTED_BY_PROTOCOL: POP3 cannot do this (folders, flags on the server); MAILBOX_INACTIVE: The mailbox is disabled or needs new credentials; INVALID_STATE: The link state is unknown, used or belongs to someone else; CODE_EXPIRED: The link was not completed in time; PROVIDER_ERROR: The OAuth provider answered with an error; UNSUPPORTED_BY_POLICY: The mailbox is set not to change this on the server (its push settings); KEYWORDS_NOT_PERMITTED: The folder does not keep keywords (no \\* in PERMANENTFLAGS), the category stays local; MESSAGE_GONE: The message is no longer where the change expected it on the server; UNSAFE_EXPUNGE: Without UIDPLUS an expunge would also remove other deleted messages of the folder.
 """
 enum MailErrorCode {
   NOT_CONFIGURED
@@ -722,9 +896,103 @@ type MailPreset {
   """The provider is linked through OAuth (`startOAuthLink`)."""
   oauth: Boolean!
 
-  """This deployment has an OAuth client for it."""
+  """The organization has an enabled provider for it (`mailProviders`)."""
   oauthConfigured: Boolean!
   note: String!
+}
+
+"""
+A provider the organization's admins set up (an IMAP server, a Gmail or Microsoft OAuth client). Every mailbox is linked through one; credentials are never returned.
+"""
+type MailProvider @key(fields: "id", resolvable: true) {
+  id: ID!
+
+  """
+  This object's descriptors, a flat mapping of key to value: the facts about it that an action's port can `require` and a trigger can test (e.g. `@kuvert/message_count`). The keys are the ones kuvert declares for this structure, and the values are the ones a signal about the object carries. Empty for a structure that declares none
+  """
+  descriptors: JSON!
+
+  """What the organization calls it."""
+  name: String!
+
+  """Which kind of provider this is."""
+  kind: Provider!
+
+  """
+  A disabled provider links no mailbox, and its mailboxes neither sync, push nor send.
+  """
+  enabled: Boolean!
+
+  """When the provider was set up."""
+  createdAt: DateTime!
+
+  """When it was last changed."""
+  updatedAt: DateTime!
+
+  """The admin who set it up."""
+  creator: User
+
+  """The organization this provider belongs to."""
+  organization: Organization!
+
+  """The capabilities switched on for this provider."""
+  capabilities: [ProviderCapability!]!
+
+  """What its kind is and can do."""
+  kindInfo: ProviderKind!
+
+  """
+  How many mailboxes of the organization are linked through it (all of them, whoever sees them).
+  """
+  mailboxCount: Int!
+
+  """Its OAuth client when it is a Gmail or Microsoft provider, else null."""
+  oauth: OAuthClientSettings
+
+  """Its servers when it is an IMAP provider, else null."""
+  server: MailServerSettings
+}
+
+"""
+A provider an organization's admin set up: one kind, its settings and credentials, and what is switched on.
+
+Every mailbox is linked through one. A Gmail or Microsoft provider is one OAuth client (its
+id and redirect URLs in ``settings``, its secret Fernet-encrypted in ``secret``); an IMAP
+provider is a mail server (fixed in ``settings``), or any server its members name. What a
+kind's ``settings`` hold is :mod:`mail.providers`'s to validate; a kind needing other
+settings needs no migration.
+"""
+input MailProviderFilter {
+  AND: MailProviderFilter
+  OR: MailProviderFilter
+  NOT: MailProviderFilter
+  DISTINCT: Boolean
+  ids: [ID!]
+  kind: Provider
+  enabled: Boolean
+  requires: [DescriptorConstraintInput!]
+}
+
+"""
+The servers of an IMAP provider: fixed by the admin, or left to each member (`fixed` false).
+"""
+type MailServerSettings {
+  """
+  True: its mailboxes use these servers, members only give their login. False: members name the servers.
+  """
+  fixed: Boolean!
+
+  """With fixed servers: how incoming mail is read."""
+  protocol: Protocol
+
+  """With fixed servers: the IMAP or POP3 server."""
+  incoming: ServerSettings
+
+  """With fixed servers: the SMTP server (null: its mailboxes cannot send)."""
+  smtp: ServerSettings
+
+  """Whether its mailboxes append sent mail to Sent."""
+  saveSentCopy: Boolean!
 }
 
 """A mailbox finished syncing."""
@@ -823,6 +1091,11 @@ type Message @key(fields: "id", resolvable: true) {
   """Attached files, inline images included (`inline`)."""
   attachments: [Attachment!]!
 
+  """
+  This object's descriptors, a flat mapping of key to value: the facts about it that an action's port can `require` and a trigger can test (e.g. `@kuvert/message_count`). The keys are the ones kuvert declares for this structure, and the values are the ones a signal about the object carries. Empty for a structure that declares none
+  """
+  descriptors: JSON!
+
   """The categories the message is in."""
   categories: [Category!]!
 
@@ -877,6 +1150,7 @@ input MessageFilter {
   DISTINCT: Boolean
   ids: [ID!]
   account: ID
+  requires: [DescriptorConstraintInput!]
   folder: ID
   folderRole: FolderRole
   thread: ID
@@ -917,128 +1191,177 @@ input MoveMessagesInput {
 }
 
 type Mutation {
+  """Admins: set up an IMAP provider, with fixed servers or open to any."""
+  createServerProvider(input: CreateServerProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+
   """
-  Link a mailbox with a username and (app) password; the login is tested first.
+  Admins: change an IMAP provider; its mailboxes follow new fixed servers.
   """
-  createMailAccount(input: CreateMailAccountInput!): MailAccount! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  updateServerProvider(input: UpdateServerProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+
+  """Admins: set up a Gmail or Microsoft OAuth client as a provider."""
+  createOAuthProvider(input: CreateOAuthProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+
+  """
+  Admins: change a Gmail or Microsoft provider; an empty secret keeps the stored one.
+  """
+  updateOAuthProvider(input: UpdateOAuthProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+
+  """
+  Admins: rename, enable or disable any provider, or change its capabilities.
+  """
+  updateProvider(input: UpdateProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+
+  """Admins: remove a provider no mailbox goes through."""
+  deleteProvider(id: ID!): ID! @auth(required_org_roles: ["admin"])
+
+  """
+  Link a mailbox with a username and (app) password through an IMAP provider; the login is tested first.
+  """
+  createMailAccount(input: CreateMailAccountInput!): MailAccount! @auth
 
   """
   Change a mailbox (owner only); new servers or credentials are tested first.
   """
-  updateMailAccount(input: UpdateMailAccountInput!): MailAccount! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  updateMailAccount(input: UpdateMailAccountInput!): MailAccount! @auth
 
   """Log in to a mailbox's servers now."""
-  testMailAccount(id: ID!): MailAccount! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  testMailAccount(id: ID!): MailAccount! @auth
 
   """Unlink a mailbox (owner only). Mail on the server is untouched."""
-  deleteMailAccount(id: ID!): ID! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  deleteMailAccount(id: ID!): ID! @auth
 
   """Set who sees a mailbox (owner only)."""
-  shareMailAccount(input: ShareMailAccountInput!): MailAccount! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  shareMailAccount(input: ShareMailAccountInput!): MailAccount! @auth
 
   """Turn syncing a folder on or off."""
-  updateMailFolder(input: UpdateMailFolderInput!): MailFolder! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  updateMailFolder(input: UpdateMailFolderInput!): MailFolder! @auth
 
   """Sync a mailbox now."""
-  syncMailAccount(id: ID!, folders: [ID!] = null): SyncResult! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  syncMailAccount(id: ID!, folders: [ID!] = null): SyncResult! @auth
 
-  """Start linking (or re-linking) a mailbox through OAuth."""
-  startOAuthLink(input: StartOAuthLinkInput!): AuthSession! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  """
+  Start linking (or re-linking) a mailbox through a Gmail or Microsoft provider.
+  """
+  startOAuthLink(input: StartOAuthLinkInput!): AuthSession! @auth
 
-  """Finish an OAuth login with the redirect's code and state."""
-  completeOAuthLink(input: CompleteOAuthLinkInput!): MailAccount! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  """
+  REDIRECT: finish with the code. POLL: advance one step; call until not PENDING.
+  """
+  completeAuth(input: CompleteAuthInput!): AuthSession! @auth
 
-  """The caller's pending OAuth login again."""
-  resumeOAuthLink(state: String!): AuthSession! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  """
+  The same login again (a fresh openUrl if the old one cannot be reused).
+  """
+  resumeAuth(state: String!): AuthSession! @auth
 
-  """Drop the caller's pending OAuth login."""
-  cancelOAuthLink(state: String!): String! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  """Drop a login that will not be finished. Idempotent."""
+  cancelAuth(state: String!): AuthSession! @auth
 
   """Add and remove flags of messages."""
-  setMessageFlags(input: SetMessageFlagsInput!): [Message!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  setMessageFlags(input: SetMessageFlagsInput!): [Message!]! @auth
 
   """Mark messages read or unread."""
-  markMessagesRead(input: MarkMessagesInput!): [Message!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  markMessagesRead(input: MarkMessagesInput!): [Message!]! @auth
 
   """Move messages to another folder of their mailbox."""
-  moveMessages(input: MoveMessagesInput!): [Message!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  moveMessages(input: MoveMessagesInput!): [Message!]! @auth
 
   """Delete messages (into Trash, or for good)."""
-  deleteMessages(input: DeleteMessagesInput!): DeleteResult! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  deleteMessages(input: DeleteMessagesInput!): DeleteResult! @auth
 
   """Put messages into categories and take them out."""
-  categorizeMessages(input: CategorizeMessagesInput!): [Message!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  categorizeMessages(input: CategorizeMessagesInput!): [Message!]! @auth
 
   """Take back changes that have not reached the server."""
-  undoMailChanges(input: UndoMailChangesInput!): [Message!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  undoMailChanges(input: UndoMailChangesInput!): [Message!]! @auth
 
   """
   Drop local-only and queued flag changes of messages: back to what the server has.
   """
-  revertMessagesToServer(messages: [ID!]!): [Message!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  revertMessagesToServer(messages: [ID!]!): [Message!]! @auth
 
   """Queue failed changes again."""
-  retryMailChanges(changes: [ID!]!): [MailChange!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  retryMailChanges(changes: [ID!]!): [MailChange!]! @auth
 
   """Push a mailbox's due changes now."""
-  pushMailChanges(account: ID!): PushResult! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  pushMailChanges(account: ID!): PushResult! @auth
 
   """Create a category of a mailbox."""
-  createCategory(input: CreateCategoryInput!): Category! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  createCategory(input: CreateCategoryInput!): Category! @auth
 
   """Change a category."""
-  updateCategory(input: UpdateCategoryInput!): Category! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  updateCategory(input: UpdateCategoryInput!): Category! @auth
 
   """Delete a category."""
-  deleteCategory(id: ID!, removeKeywords: Boolean! = false): ID! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  deleteCategory(id: ID!, removeKeywords: Boolean! = false): ID! @auth
 
   """Create a task list."""
-  createTaskList(input: CreateTaskListInput!): TaskList! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  createTaskList(input: CreateTaskListInput!): TaskList! @auth
 
   """Rename, recolor or move a task list."""
-  updateTaskList(input: UpdateTaskListInput!): TaskList! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  updateTaskList(input: UpdateTaskListInput!): TaskList! @auth
 
   """Delete a task list; its tasks stay, on no list."""
-  deleteTaskList(id: ID!): ID! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  deleteTaskList(id: ID!): ID! @auth
 
   """Create a task, optionally with conversations."""
-  createTask(input: CreateTaskInput!): Task! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  createTask(input: CreateTaskInput!): Task! @auth
 
   """
   Create or update the caller's task with this externalKey, and add conversations to it.
   """
-  upsertTask(input: UpsertTaskInput!): Task! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  upsertTask(input: UpsertTaskInput!): Task! @auth
 
   """Change a task."""
-  updateTask(input: UpdateTaskInput!): Task! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  updateTask(input: UpdateTaskInput!): Task! @auth
 
   """Delete a task."""
-  deleteTask(id: ID!): ID! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  deleteTask(id: ID!): ID! @auth
 
   """Mark tasks OPEN, DONE or DISMISSED."""
-  setTaskStatus(input: SetTaskStatusInput!): [Task!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  setTaskStatus(input: SetTaskStatusInput!): [Task!]! @auth
 
   """Snooze tasks until a time (null wakes them)."""
-  snoozeTasks(input: SnoozeTasksInput!): [Task!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  snoozeTasks(input: SnoozeTasksInput!): [Task!]! @auth
 
   """Put conversations into a task."""
-  linkThreads(input: LinkThreadsInput!): [TaskThread!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  linkThreads(input: LinkThreadsInput!): [TaskThread!]! @auth
 
   """Take conversations out of a task."""
-  unlinkThreads(input: UnlinkThreadsInput!): Task! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  unlinkThreads(input: UnlinkThreadsInput!): Task! @auth
 
   """Send a message through a mailbox's SMTP server."""
-  sendMessage(input: SendMessageInput!): OutgoingMessage! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  sendMessage(input: SendMessageInput!): OutgoingMessage! @auth
 
   """
   Request temporary S3 credentials to upload one file (an attachment to send).
   """
-  requestBigfileUpload(input: RequestBigFileUploadInput!): BigFileUploadGrant! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  requestBigfileUpload(input: RequestBigFileUploadInput!): BigFileUploadGrant! @auth(any_role_of: ["admin", "editor", "bot"])
 
   """
   Finalize the caller's file upload after the client has written the object.
   """
-  finishBigfileUpload(input: FinishBigFileUploadInput!): BigFileStore! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  finishBigfileUpload(input: FinishBigFileUploadInput!): BigFileStore! @auth(any_role_of: ["admin", "editor", "bot"])
+}
+
+"""
+The OAuth client of a Gmail or Microsoft provider. Its secret is never returned.
+"""
+type OAuthClientSettings {
+  """The OAuth client id."""
+  clientId: String!
+
+  """The redirect URLs a login may use; the first is the default."""
+  redirectUrls: [String!]!
+
+  """Microsoft: the Entra tenant logins go through (`common`: any account)."""
+  tenant: String!
+
+  """
+  Whether a client secret is stored (a public client with PKCE has none).
+  """
+  hasSecret: Boolean!
 }
 
 input OffsetPaginationInput {
@@ -1109,6 +1432,11 @@ type OutgoingMessage @key(fields: "id", resolvable: true) {
   """The files attached."""
   attachments: [BigFileStore!]!
 
+  """
+  This object's descriptors, a flat mapping of key to value: the facts about it that an action's port can `require` and a trigger can test (e.g. `@kuvert/message_count`). The keys are the ones kuvert declares for this structure, and the values are the ones a signal about the object carries. Empty for a structure that declares none
+  """
+  descriptors: JSON!
+
   """To addresses."""
   to: [Address!]!
 
@@ -1132,6 +1460,7 @@ input OutgoingMessageFilter {
   DISTINCT: Boolean
   account: ID
   status: OutgoingStatus
+  requires: [DescriptorConstraintInput!]
 }
 
 """
@@ -1152,12 +1481,46 @@ enum Protocol {
 }
 
 """
-Who hosts a mailbox (decides OAuth, presets and Sent-copy behaviour). GENERIC: Any IMAP/POP3 server; GMAIL: Gmail / Google Workspace; MICROSOFT: Outlook.com / Microsoft 365.
+Who hosts a mailbox (decides OAuth, presets and Sent-copy behaviour); also the kind of a :class:`MailProvider`. GENERIC: Any IMAP/POP3 server; GMAIL: Gmail / Google Workspace; MICROSOFT: Outlook.com / Microsoft 365.
 """
 enum Provider {
   GENERIC
   GMAIL
   MICROSOFT
+}
+
+"""
+What a provider may be used for, beyond reading mail (which every one does). SEND: Send mail through its mailboxes' SMTP servers; SCHEDULED_SYNC: Let the unattended sync_all_mailboxes action sync its mailboxes.
+"""
+enum ProviderCapability {
+  SEND
+  SCHEDULED_SYNC
+}
+
+"""
+A capability a provider can have switched on, as shown to whoever switches it.
+"""
+type ProviderCapabilityInfo {
+  capability: ProviderCapability!
+  label: String!
+  description: String!
+}
+
+"""
+A kind of provider this server can run. What a client needs to offer it, without knowing the kinds itself.
+"""
+type ProviderKind {
+  kind: Provider!
+  label: String!
+  description: String!
+
+  """
+  How its mailboxes log in: PASSWORD — link one with `createMailAccount`; XOAUTH2 — with `startOAuthLink`.
+  """
+  authMethod: AuthMethod!
+
+  """Everything the kind can do; a provider enables a subset."""
+  capabilities: [ProviderCapabilityInfo!]!
 }
 
 """What pushing a mailbox's changes did."""
@@ -1181,82 +1544,93 @@ type Query {
   _service: _Service!
 
   """
+  The providers the organization set up; every mailbox is linked through one.
+  """
+  mailProviders(filters: MailProviderFilter, pagination: OffsetPaginationInput): [MailProvider!]! @auth
+
+  """A provider by id."""
+  mailProvider(id: ID!): MailProvider! @auth
+
+  """The kinds of provider this server can run, each with its capabilities."""
+  providerKinds: [ProviderKind!]! @auth
+
+  """
   The mailboxes the caller sees: their own, shared with them, and the organization's.
   """
-  mailAccounts(filters: MailAccountFilter, pagination: OffsetPaginationInput): [MailAccount!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  mailAccounts(filters: MailAccountFilter, pagination: OffsetPaginationInput): [MailAccount!]! @auth
 
   """A mailbox by id."""
-  mailAccount(id: ID!): MailAccount! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  mailAccount(id: ID!): MailAccount! @auth
 
   """Folders of the visible mailboxes (filter by `account`)."""
-  mailFolders(filters: MailFolderFilter, pagination: OffsetPaginationInput): [MailFolder!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  mailFolders(filters: MailFolderFilter, pagination: OffsetPaginationInput): [MailFolder!]! @auth
 
   """A folder by id."""
-  mailFolder(id: ID!): MailFolder! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  mailFolder(id: ID!): MailFolder! @auth
 
   """
   Messages of the visible mailboxes (paginated, filterable — `search` also matches by meaning — and orderable).
   """
-  messages(filters: MessageFilter, ordering: [MessageOrder!]! = [], pagination: OffsetPaginationInput): [Message!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  messages(filters: MessageFilter, ordering: [MessageOrder!]! = [], pagination: OffsetPaginationInput): [Message!]! @auth
 
   """A message by id."""
-  message(id: ID!): Message! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  message(id: ID!): Message! @auth
 
   """
   Conversations of the visible mailboxes (paginated, filterable, orderable).
   """
-  threads(filters: ThreadFilter, ordering: [ThreadOrder!]! = [], pagination: OffsetPaginationInput): [Thread!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  threads(filters: ThreadFilter, ordering: [ThreadOrder!]! = [], pagination: OffsetPaginationInput): [Thread!]! @auth
 
   """A conversation by id."""
-  thread(id: ID!): Thread! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  thread(id: ID!): Thread! @auth
 
   """How many conversations match the filters (for a list header)."""
-  threadsCount(filters: ThreadFilter = null): Int! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  threadsCount(filters: ThreadFilter = null): Int! @auth
 
   """How many messages match the filters."""
-  messagesCount(filters: MessageFilter = null): Int! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  messagesCount(filters: MessageFilter = null): Int! @auth
 
   """The caller's task lists."""
-  taskLists(filters: TaskListFilter, pagination: OffsetPaginationInput): [TaskList!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  taskLists(filters: TaskListFilter, pagination: OffsetPaginationInput): [TaskList!]! @auth
 
   """A task list by id."""
-  taskList(id: ID!): TaskList! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  taskList(id: ID!): TaskList! @auth
 
   """
   The caller's tasks (paginated, filterable — `active` is the Inbox view — and orderable).
   """
-  tasks(filters: TaskFilter, ordering: [TaskOrder!]! = [], pagination: OffsetPaginationInput): [Task!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  tasks(filters: TaskFilter, ordering: [TaskOrder!]! = [], pagination: OffsetPaginationInput): [Task!]! @auth
 
   """A task by id."""
-  task(id: ID!): Task! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  task(id: ID!): Task! @auth
 
   """How many of the caller's tasks match the filters."""
-  tasksCount(filters: TaskFilter = null): Int! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  tasksCount(filters: TaskFilter = null): Int! @auth
 
   """Categories of the visible mailboxes (filter by `account`)."""
-  categories(filters: CategoryFilter, pagination: OffsetPaginationInput): [Category!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  categories(filters: CategoryFilter, pagination: OffsetPaginationInput): [Category!]! @auth
 
   """A category by id."""
-  category(id: ID!): Category! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  category(id: ID!): Category! @auth
 
   """
   Changes made here that have not reached the server yet (pending or failed), oldest first.
   """
-  mailChanges(filters: MailChangeFilter, pagination: OffsetPaginationInput): [MailChange!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  mailChanges(filters: MailChangeFilter, pagination: OffsetPaginationInput): [MailChange!]! @auth
 
   """Mail sent through the visible mailboxes, newest first."""
-  outbox(filters: OutgoingMessageFilter, pagination: OffsetPaginationInput): [OutgoingMessage!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  outbox(filters: OutgoingMessageFilter, pagination: OffsetPaginationInput): [OutgoingMessage!]! @auth
 
   """A sent message by id."""
-  outgoingMessage(id: ID!): OutgoingMessage! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  outgoingMessage(id: ID!): OutgoingMessage! @auth
 
   """
   Server settings of well-known providers (the one for `address`, when given).
   """
-  mailPresets(address: String): [MailPreset!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  mailPresets(address: String): [MailPreset!]! @auth
 
-  """Providers this deployment can link through OAuth."""
-  oauthProviders: [Provider!]! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  """Where a login is. No side effect."""
+  authSession(state: String!): AuthSession! @auth
 }
 
 """A recipient."""
@@ -1363,10 +1737,13 @@ input SnoozeTasksInput {
 }
 
 """
-Start linking a mailbox through OAuth, or re-link one (`account`) whose grant ran out.
+Start linking a mailbox through one of the organization's Gmail or Microsoft providers, or re-link one (`account`) whose grant ran out.
 """
 input StartOAuthLinkInput {
-  provider: Provider!
+  """
+  The provider to link through (see `mailProviders`). A re-link goes through the mailbox's own by default, or another of its kind.
+  """
+  provider: ID = null
   protocol: Protocol! = IMAP
 
   """
@@ -1386,7 +1763,7 @@ input StartOAuthLinkInput {
 
 type Subscription {
   """Events whenever a visible mailbox finished syncing."""
-  mailboxSyncs: MailboxSyncEvent! @auth(required_scopes: null, required_roles: null, required_org_roles: null)
+  mailboxSyncs: MailboxSyncEvent! @auth
 }
 
 """What one mailbox sync did."""
@@ -1623,6 +2000,11 @@ type Thread @key(fields: "id", resolvable: true) {
   """How many messages are in the conversation."""
   messageCount: Int!
 
+  """
+  This object's descriptors, a flat mapping of key to value: the facts about it that an action's port can `require` and a trigger can test (e.g. `@kuvert/message_count`). The keys are the ones kuvert declares for this structure, and the values are the ones a signal about the object carries. Empty for a structure that declares none
+  """
+  descriptors: JSON!
+
   """The conversation's messages, oldest first."""
   messages: [Message!]!
 
@@ -1659,6 +2041,7 @@ input ThreadFilter {
   NOT: ThreadFilter
   DISTINCT: Boolean
   account: ID
+  requires: [DescriptorConstraintInput!]
   folder: ID
   ids: [ID!]
   folderRole: FolderRole
@@ -1725,7 +2108,7 @@ input UpdateCategoryInput {
 }
 
 """
-Changes to a mailbox; omitted fields stay as they are. Changing servers or credentials tests the login first.
+Changes to a mailbox; omitted fields stay as they are. Changing servers or credentials tests the login first. A mailbox whose provider fixes the servers keeps them (an admin changes them on the provider).
 """
 input UpdateMailAccountInput {
   id: ID!
@@ -1771,6 +2154,46 @@ input UpdateMailFolderInput {
 
   """Whether syncs read the folder. Turning it off keeps what is stored."""
   syncEnabled: Boolean!
+}
+
+"""
+Changes to a Gmail or Microsoft provider; omitted fields stay as they are. Its client id stays while mailboxes go through it (their refresh tokens belong to that client).
+"""
+input UpdateOAuthProviderInput {
+  id: ID!
+  name: String
+  enabled: Boolean
+  clientId: String
+
+  """A new client secret. Omitted or empty: the stored one is kept."""
+  clientSecret: String
+  redirectUrls: [String!]
+  tenant: String
+  capabilities: [ProviderCapability!]
+}
+
+"""
+Changes any provider takes, whatever its kind; omitted fields stay as they are.
+"""
+input UpdateProviderInput {
+  id: ID!
+  name: String
+  enabled: Boolean
+  capabilities: [ProviderCapability!]
+}
+
+"""
+Changes to an IMAP provider; omitted fields stay as they are. Fixed servers may change and its mailboxes follow; while it has mailboxes, its protocol and whether its servers are fixed stay.
+"""
+input UpdateServerProviderInput {
+  id: ID!
+  name: String
+  enabled: Boolean
+  protocol: Protocol
+  incoming: ServerInput
+  smtp: ServerInput
+  saveSentCopy: Boolean
+  capabilities: [ProviderCapability!]
 }
 
 """Changes to a task; omitted fields stay as they are."""
@@ -1828,7 +2251,7 @@ enum Visibility {
 
 scalar _Any
 
-union _Entity = Attachment | BigFileStore | Category | MailAccount | MailChange | MailFolder | Message | Organization | OutgoingMessage | Task | TaskList | TaskThread | Thread | User
+union _Entity = Attachment | BigFileStore | Category | MailAccount | MailChange | MailFolder | MailProvider | Message | Organization | OutgoingMessage | Task | TaskList | TaskThread | Thread | User
 
 type _Service {
   sdl: String!

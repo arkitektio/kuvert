@@ -2,7 +2,7 @@ import builtins
 from collections.abc import AsyncIterator, Iterable, Iterator
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from rath.scalars import ID, IDCoercible
@@ -39,6 +39,14 @@ class UnsetType:
 UNSET = UnsetType()
 
 
+class AuthFinish(str, Enum):
+    """How a started login finishes."""
+
+    REDIRECT = "REDIRECT"
+    POLL = "POLL"
+    __str__ = str.__str__
+
+
 class AuthMethod(str, Enum):
     """How the service logs in. PASSWORD: Username and (app) password; XOAUTH2: OAuth 2.0 access token (SASL XOAUTH2)."""
 
@@ -47,11 +55,37 @@ class AuthMethod(str, Enum):
     __str__ = str.__str__
 
 
+class AuthStatus(str, Enum):
+    """Where a login is."""
+
+    PENDING = "PENDING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+    CANCELLED = "CANCELLED"
+    __str__ = str.__str__
+
+
 class CategorySync(str, Enum):
     """Where a category lives. LOCAL: Only here; the server never sees it; KEYWORD: As an IMAP keyword on the server, so other mail clients see it."""
 
     LOCAL = "LOCAL"
     KEYWORD = "KEYWORD"
+    __str__ = str.__str__
+
+
+class DescriptorOperator(str, Enum):
+    """How a descriptor constraint compares the object's value with the stated one. The operators a rekuest port's `requires` and `provides` are written in, with the same meaning."""
+
+    EQUALS = "EQUALS"
+    MATCHES = "MATCHES"
+    NOT_EQUALS = "NOT_EQUALS"
+    GTE = "GTE"
+    LTE = "LTE"
+    EXISTS = "EXISTS"
+    CONTAINS = "CONTAINS"
+    IN = "IN"
+    NOT_IN = "NOT_IN"
     __str__ = str.__str__
 
 
@@ -98,7 +132,7 @@ class MailChangeState(str, Enum):
 
 
 class MailErrorCode(str, Enum):
-    """What went wrong, for a client to offer a fix. Also stored as ``last_error_code``. NOT_CONFIGURED: The service is not configured for this (an OAuth client, the datalayer); AUTH_FAILED: The server refused the username or password; CONSENT_EXPIRED: The OAuth grant was revoked or ran out; link the mailbox again; CONNECTION_FAILED: The server could not be reached, or the connection broke; TLS_FAILED: The TLS handshake failed (certificate or protocol); TLS_REQUIRED: The mailbox asks for a connection without TLS, which is not allowed; HOST_NOT_ALLOWED: The host resolves to a private or internal address; SYNC_IN_PROGRESS: Another sync holds this mailbox right now; RATE_LIMITED: Synced too recently; try again later; SERVER_ERROR: The server answered a command with an error; SEND_REJECTED: The SMTP server refused the message or a recipient; UNSUPPORTED_BY_PROTOCOL: POP3 cannot do this (folders, flags on the server); MAILBOX_INACTIVE: The mailbox is disabled or needs new credentials; INVALID_STATE: The link state is unknown, used or belongs to someone else; CODE_EXPIRED: The link was not completed in time; PROVIDER_ERROR: The OAuth provider answered with an error; UNSUPPORTED_BY_POLICY: The mailbox is set not to change this on the server (its push settings); KEYWORDS_NOT_PERMITTED: The folder does not keep keywords (no \\\\* in PERMANENTFLAGS), the category stays local; MESSAGE_GONE: The message is no longer where the change expected it on the server; UNSAFE_EXPUNGE: Without UIDPLUS an expunge would also remove other deleted messages of the folder."""
+    """What went wrong, for a client to offer a fix. Also stored as ``last_error_code``. NOT_CONFIGURED: The organization or the service is not set up for this (no usable provider, the datalayer); AUTH_FAILED: The server refused the username or password; CONSENT_EXPIRED: The OAuth grant was revoked or ran out; link the mailbox again; CONNECTION_FAILED: The server could not be reached, or the connection broke; TLS_FAILED: The TLS handshake failed (certificate or protocol); TLS_REQUIRED: The mailbox asks for a connection without TLS, which is not allowed; HOST_NOT_ALLOWED: The host resolves to a private or internal address; SYNC_IN_PROGRESS: Another sync holds this mailbox right now; RATE_LIMITED: Synced too recently; try again later; SERVER_ERROR: The server answered a command with an error; SEND_REJECTED: The SMTP server refused the message or a recipient; UNSUPPORTED_BY_PROTOCOL: POP3 cannot do this (folders, flags on the server); MAILBOX_INACTIVE: The mailbox is disabled or needs new credentials; INVALID_STATE: The link state is unknown, used or belongs to someone else; CODE_EXPIRED: The link was not completed in time; PROVIDER_ERROR: The OAuth provider answered with an error; UNSUPPORTED_BY_POLICY: The mailbox is set not to change this on the server (its push settings); KEYWORDS_NOT_PERMITTED: The folder does not keep keywords (no \\\\* in PERMANENTFLAGS), the category stays local; MESSAGE_GONE: The message is no longer where the change expected it on the server; UNSAFE_EXPUNGE: Without UIDPLUS an expunge would also remove other deleted messages of the folder."""
 
     NOT_CONFIGURED = "NOT_CONFIGURED"
     AUTH_FAILED = "AUTH_FAILED"
@@ -153,11 +187,19 @@ class Protocol(str, Enum):
 
 
 class Provider(str, Enum):
-    """Who hosts a mailbox (decides OAuth, presets and Sent-copy behaviour). GENERIC: Any IMAP/POP3 server; GMAIL: Gmail / Google Workspace; MICROSOFT: Outlook.com / Microsoft 365."""
+    """Who hosts a mailbox (decides OAuth, presets and Sent-copy behaviour); also the kind of a :class:`MailProvider`. GENERIC: Any IMAP/POP3 server; GMAIL: Gmail / Google Workspace; MICROSOFT: Outlook.com / Microsoft 365."""
 
     GENERIC = "GENERIC"
     GMAIL = "GMAIL"
     MICROSOFT = "MICROSOFT"
+    __str__ = str.__str__
+
+
+class ProviderCapability(str, Enum):
+    """What a provider may be used for, beyond reading mail (which every one does). SEND: Send mail through its mailboxes' SMTP servers; SCHEDULED_SYNC: Let the unattended sync_all_mailboxes action sync its mailboxes."""
+
+    SEND = "SEND"
+    SCHEDULED_SYNC = "SCHEDULED_SYNC"
     __str__ = str.__str__
 
 
@@ -241,11 +283,73 @@ class CategoryFilter(BaseModel):
     )
 
 
-class CompleteOAuthLinkInput(BaseModel):
-    """What the provider's redirect carried."""
+class CompleteAuthInput(BaseModel):
+    """Finish (REDIRECT) or advance (POLL) a started login."""
 
-    code: str
     state: str
+    code: str | None = Field(
+        default=None,
+        description="REDIRECT: the `code` query parameter of the redirect. POLL: omitted.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="REDIRECT: the provider's `error` / `error_description`, when it refused.",
+    )
+    error_description: str | None = Field(
+        validation_alias=AliasChoices("error_description", "errorDescription"),
+        serialization_alias="errorDescription",
+        default=None,
+    )
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
+    )
+
+
+class CreateOAuthProviderInput(BaseModel):
+    """A new Gmail or Microsoft provider: one OAuth client (a Google Cloud OAuth client, an Entra app registration)."""
+
+    kind: Provider = Field(description="GMAIL or MICROSOFT.")
+    name: str = Field(description="What to call it, unique in the organization.")
+    client_id: str = Field(
+        validation_alias=AliasChoices("client_id", "clientId"),
+        serialization_alias="clientId",
+        description="The OAuth client id.",
+    )
+    client_secret: str | None = Field(
+        validation_alias=AliasChoices("client_secret", "clientSecret"),
+        serialization_alias="clientSecret",
+        default=None,
+        description="The client secret (a public client with PKCE has none). Stored encrypted and never returned.",
+    )
+    redirect_urls: tuple[str, ...] = Field(
+        validation_alias=AliasChoices("redirect_urls", "redirectUrls"),
+        serialization_alias="redirectUrls",
+        description="The redirect URLs registered for the client, the default first.",
+    )
+    tenant: str | None = Field(
+        default=None,
+        description="Microsoft: the Entra tenant (id or domain); `common` (any account) by default.",
+    )
+    capabilities: tuple[ProviderCapability, ...] | None = Field(
+        default=None,
+        description="What to switch on; everything the kind can do by default (see `providerKinds`).",
+    )
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
+    )
+
+
+class DescriptorConstraintInput(BaseModel):
+    """One constraint on an object's descriptors, in the shape a rekuest port states its `requires` in -- so a picker hands a port's constraints on unchanged. `key` is one of the keys the structure declares (e.g. `@kuvert/has_attachments`); a key it does not declare is refused."""
+
+    key: str = Field(description="The descriptor key, e.g. `@kuvert/has_attachments`")
+    operator: DescriptorOperator = Field(
+        description="How the object's value is compared with `value`. MATCHES is equality, as EQUALS is"
+    )
+    value: Any | None = Field(
+        default=None,
+        description="The value compared against: a number for GTE and LTE, a list for IN and NOT_IN, true or false for EXISTS, the member looked for with CONTAINS",
+    )
     model_config = ConfigDict(
         frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
     )
@@ -281,6 +385,7 @@ class MailAccountFilter(BaseModel):
     ids: tuple[ID, ...] | None = None
     status: MailAccountStatus | None = None
     search: str | None = None
+    provider: ID | None = None
     mine: bool | None = None
     model_config = ConfigDict(
         frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
@@ -358,6 +463,44 @@ class MailFolderFilter(BaseModel):
     )
 
 
+class MailProviderFilter(BaseModel):
+    """A provider an organization's admin set up: one kind, its settings and credentials, and what is switched on.
+
+    Every mailbox is linked through one. A Gmail or Microsoft provider is one OAuth client (its
+    id and redirect URLs in ``settings``, its secret Fernet-encrypted in ``secret``); an IMAP
+    provider is a mail server (fixed in ``settings``), or any server its members name. What a
+    kind's ``settings`` hold is :mod:`mail.providers`'s to validate; a kind needing other
+    settings needs no migration."""
+
+    and_: "MailProviderFilter | None" = Field(
+        validation_alias=AliasChoices("and_", "AND"),
+        serialization_alias="AND",
+        default=None,
+    )
+    or_: "MailProviderFilter | None" = Field(
+        validation_alias=AliasChoices("or_", "OR"),
+        serialization_alias="OR",
+        default=None,
+    )
+    not_: "MailProviderFilter | None" = Field(
+        validation_alias=AliasChoices("not_", "NOT"),
+        serialization_alias="NOT",
+        default=None,
+    )
+    distinct: bool | None = Field(
+        validation_alias=AliasChoices("distinct", "DISTINCT"),
+        serialization_alias="DISTINCT",
+        default=None,
+    )
+    ids: tuple[ID, ...] | None = None
+    kind: Provider | None = None
+    enabled: bool | None = None
+    requires: tuple[DescriptorConstraintInput, ...] | None = None
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
+    )
+
+
 class MessageFilter(BaseModel):
     """One message in one folder. A copy in another folder is another row with the same ``message_id``."""
 
@@ -383,6 +526,7 @@ class MessageFilter(BaseModel):
     )
     ids: tuple[ID, ...] | None = None
     account: ID | None = None
+    requires: tuple[DescriptorConstraintInput, ...] | None = None
     folder: ID | None = None
     folder_role: FolderRole | None = Field(
         validation_alias=AliasChoices("folder_role", "folderRole"),
@@ -541,6 +685,7 @@ class OutgoingMessageFilter(BaseModel):
     )
     account: ID | None = None
     status: OutgoingStatus | None = None
+    requires: tuple[DescriptorConstraintInput, ...] | None = None
     model_config = ConfigDict(
         frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
     )
@@ -793,6 +938,7 @@ class ThreadFilter(BaseModel):
         default=None,
     )
     account: ID | None = None
+    requires: tuple[DescriptorConstraintInput, ...] | None = None
     folder: ID | None = None
     ids: tuple[ID, ...] | None = None
     folder_role: FolderRole | None = Field(
@@ -880,7 +1026,7 @@ class UndoMailChangesInput(BaseModel):
 
 
 class UpdateMailAccountInput(BaseModel):
-    """Changes to a mailbox; omitted fields stay as they are. Changing servers or credentials tests the login first."""
+    """Changes to a mailbox; omitted fields stay as they are. Changing servers or credentials tests the login first. A mailbox whose provider fixes the servers keeps them (an admin changes them on the provider)."""
 
     id: ID
     name: str | None = None
@@ -966,6 +1112,67 @@ class UpdateMailFolderInput(BaseModel):
     )
 
 
+class UpdateOAuthProviderInput(BaseModel):
+    """Changes to a Gmail or Microsoft provider; omitted fields stay as they are. Its client id stays while mailboxes go through it (their refresh tokens belong to that client)."""
+
+    id: ID
+    name: str | None = None
+    enabled: bool | None = None
+    client_id: str | None = Field(
+        validation_alias=AliasChoices("client_id", "clientId"),
+        serialization_alias="clientId",
+        default=None,
+    )
+    client_secret: str | None = Field(
+        validation_alias=AliasChoices("client_secret", "clientSecret"),
+        serialization_alias="clientSecret",
+        default=None,
+        description="A new client secret. Omitted or empty: the stored one is kept.",
+    )
+    redirect_urls: tuple[str, ...] | None = Field(
+        validation_alias=AliasChoices("redirect_urls", "redirectUrls"),
+        serialization_alias="redirectUrls",
+        default=None,
+    )
+    tenant: str | None = None
+    capabilities: tuple[ProviderCapability, ...] | None = None
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
+    )
+
+
+class UpdateProviderInput(BaseModel):
+    """Changes any provider takes, whatever its kind; omitted fields stay as they are."""
+
+    id: ID
+    name: str | None = None
+    enabled: bool | None = None
+    capabilities: tuple[ProviderCapability, ...] | None = None
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
+    )
+
+
+class UpdateServerProviderInput(BaseModel):
+    """Changes to an IMAP provider; omitted fields stay as they are. Fixed servers may change and its mailboxes follow; while it has mailboxes, its protocol and whether its servers are fixed stay."""
+
+    id: ID
+    name: str | None = None
+    enabled: bool | None = None
+    protocol: Protocol | None = None
+    incoming: ServerInput | None = None
+    smtp: ServerInput | None = None
+    save_sent_copy: bool | None = Field(
+        validation_alias=AliasChoices("save_sent_copy", "saveSentCopy"),
+        serialization_alias="saveSentCopy",
+        default=None,
+    )
+    capabilities: tuple[ProviderCapability, ...] | None = None
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
+    )
+
+
 class UpdateTaskInput(BaseModel):
     """Changes to a task; omitted fields stay as they are."""
 
@@ -999,63 +1206,6 @@ class UpdateTaskListInput(BaseModel):
     )
 
 
-class MailAccount(BaseModel):
-    """A linked mailbox. Private to the member who linked it unless shared (`visibility`)."""
-
-    typename: Literal["MailAccount"] = Field(
-        alias="__typename", default="MailAccount", exclude=True
-    )
-    id: ID
-    name: str
-    "A display name for the mailbox (e.g. 'Work')."
-    email_address: str = Field(alias="emailAddress")
-    "The mailbox's address; the From of sent mail."
-    display_name: str = Field(alias="displayName")
-    "The sender name of sent mail."
-    provider: Provider
-    "Who hosts the mailbox."
-    status: MailAccountStatus
-    "Where the mailbox is in its lifecycle."
-    visibility: Visibility
-    "Who in the organization sees the mailbox and its mail."
-    protocol: Protocol
-    "How incoming mail is read."
-    auth_method: AuthMethod = Field(alias="authMethod")
-    "How the service logs in."
-    capabilities: tuple[str, ...]
-    "What the incoming server announced (IMAP CAPABILITY, POP3 CAPA)."
-    last_synced_at: datetime | None = Field(default=None, alias="lastSyncedAt")
-    "When the last successful sync finished."
-    last_error: str | None = Field(default=None, alias="lastError")
-    "Why the last sync or connection failed, if it did."
-    last_error_code: MailErrorCode | None = Field(default=None, alias="lastErrorCode")
-    "The machine-readable kind of `last_error`."
-    backfill_done: bool = Field(alias="backfillDone")
-    "Every synced folder has reached the backfill window."
-    created_at: datetime = Field(alias="createdAt")
-    "When the mailbox was linked."
-    is_owner: bool = Field(alias="isOwner")
-    "Whether the caller linked the mailbox (and so may change its credentials, sharing, or delete it)."
-    can_send: bool = Field(alias="canSend")
-    "Whether the mailbox can send (it has an SMTP server)."
-    syncing: bool
-    "Whether a sync holds the mailbox right now."
-    unread_count: int = Field(alias="unreadCount")
-    "Unread messages over the synced folders, as they are here."
-    pending_changes: int = Field(alias="pendingChanges")
-    "Changes made here that have not reached the server yet."
-    failed_changes: int = Field(alias="failedChanges")
-    "Changes made here that did not reach the server (see `mailChanges`)."
-    model_config = ConfigDict(frozen=True)
-
-    class Meta:
-        """Meta class for MailAccount"""
-
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}"
-        name = "MailAccount"
-        type = "MailAccount"
-
-
 class ServerSettings(BaseModel):
     """Where a server is reached."""
 
@@ -1073,6 +1223,56 @@ class ServerSettings(BaseModel):
         document = "fragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}"
         name = "ServerSettings"
         type = "ServerSettings"
+
+
+class AuthSessionResult(BaseModel):
+    """A Structure: what the login linked, so the app can open its page."""
+
+    typename: Literal["AuthResult"] = Field(
+        alias="__typename", default="AuthResult", exclude=True
+    )
+    identifier: str
+    id: ID
+    label: str | None = Field(default=None)
+    model_config = ConfigDict(frozen=True)
+
+
+class AuthSession(BaseModel):
+    """A login at an external provider, the same shape in every service. Open `openUrl` in the user's browser; then, by `finish`: REDIRECT — the provider redirects to `redirectUrl` with `code` and `state`, call `completeAuth` with both; POLL — call `completeAuth` with the `state` every `interval` seconds until `status` is not PENDING."""
+
+    typename: Literal["AuthSession"] = Field(
+        alias="__typename", default="AuthSession", exclude=True
+    )
+    state: str
+    "Opaque, unguessable, single-use, stored server-side. THE handle of the login."
+    status: AuthStatus
+    finish: AuthFinish
+    open_url: str = Field(alias="openUrl")
+    "https. What the app opens in the user's browser."
+    expires_at: datetime = Field(alias="expiresAt")
+    "Until when the first approval can happen."
+    redirect_url: str | None = Field(default=None, alias="redirectUrl")
+    "REDIRECT: where the provider sends the browser back to (the relay URL)."
+    interval: int | None = Field(default=None)
+    "POLL: seconds between two completeAuth calls."
+    user_code: str | None = Field(default=None, alias="userCode")
+    "POLL: the code the user confirms on the provider's page."
+    step: str | None = Field(default=None)
+    "Null until the first approval; then what is still awaited, e.g. MFA."
+    error_code: str | None = Field(default=None, alias="errorCode")
+    "FAILED: machine-readable, the service's own error codes."
+    error_message: str | None = Field(default=None, alias="errorMessage")
+    "FAILED: one sentence for the user."
+    result: AuthSessionResult | None = Field(default=None)
+    "DONE: what was linked. May be set earlier when it already exists (a relink)."
+    model_config = ConfigDict(frozen=True)
+
+    class Meta:
+        """Meta class for AuthSession"""
+
+        document = "fragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}"
+        name = "AuthSession"
+        type = "AuthSession"
 
 
 class CategoryAccount(BaseModel):
@@ -1391,6 +1591,62 @@ class RefusedRecipient(BaseModel):
         type = "RefusedRecipient"
 
 
+class MailProviderRef(BaseModel):
+    """A provider the organization's admins set up (an IMAP server, a Gmail or Microsoft OAuth client). Every mailbox is linked through one; credentials are never returned."""
+
+    typename: Literal["MailProvider"] = Field(
+        alias="__typename", default="MailProvider", exclude=True
+    )
+    id: ID
+    name: str
+    "What the organization calls it."
+    kind: Provider
+    "Which kind of provider this is."
+    model_config = ConfigDict(frozen=True)
+
+    class Meta:
+        """Meta class for MailProviderRef"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}"
+        name = "MailProviderRef"
+        type = "MailProvider"
+
+
+class ProviderKindCapabilities(BaseModel):
+    """A capability a provider can have switched on, as shown to whoever switches it."""
+
+    typename: Literal["ProviderCapabilityInfo"] = Field(
+        alias="__typename", default="ProviderCapabilityInfo", exclude=True
+    )
+    capability: ProviderCapability
+    label: str
+    description: str
+    model_config = ConfigDict(frozen=True)
+
+
+class ProviderKind(BaseModel):
+    """A kind of provider this server can run. What a client needs to offer it, without knowing the kinds itself."""
+
+    typename: Literal["ProviderKind"] = Field(
+        alias="__typename", default="ProviderKind", exclude=True
+    )
+    kind: Provider
+    label: str
+    description: str
+    auth_method: AuthMethod = Field(alias="authMethod")
+    "How its mailboxes log in: PASSWORD — link one with `createMailAccount`; XOAUTH2 — with `startOAuthLink`."
+    capabilities: tuple[ProviderKindCapabilities, ...]
+    "Everything the kind can do; a provider enables a subset."
+    model_config = ConfigDict(frozen=True)
+
+    class Meta:
+        """Meta class for ProviderKind"""
+
+        document = "fragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}"
+        name = "ProviderKind"
+        type = "ProviderKind"
+
+
 class MailboxSyncEvent(BaseModel):
     """A mailbox finished syncing."""
 
@@ -1549,58 +1805,6 @@ class TaskThread(BaseModel):
         type = "TaskThread"
 
 
-class AuthSession(BaseModel):
-    """A started OAuth login: open `openUrl`; the provider redirects to `redirectUrl` with `?code&state`; call `completeOAuthLink` with them."""
-
-    typename: Literal["AuthSession"] = Field(
-        alias="__typename", default="AuthSession", exclude=True
-    )
-    state: str
-    open_url: str = Field(alias="openUrl")
-    expires_at: datetime = Field(alias="expiresAt")
-    finish: str
-    "How the login finishes: REDIRECT (catch the redirect, then `completeOAuthLink`)."
-    redirect_url: str = Field(alias="redirectUrl")
-    provider: Provider
-    account: MailAccount | None = Field(default=None)
-    "The mailbox this login re-links, if it does."
-    model_config = ConfigDict(frozen=True)
-
-    class Meta:
-        """Meta class for AuthSession"""
-
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  openUrl\n  expiresAt\n  finish\n  redirectUrl\n  provider\n  account {\n    ...MailAccount\n    __typename\n  }\n  __typename\n}"
-        name = "AuthSession"
-        type = "AuthSession"
-
-
-class SyncResult(BaseModel):
-    """What one mailbox sync did."""
-
-    typename: Literal["SyncResult"] = Field(
-        alias="__typename", default="SyncResult", exclude=True
-    )
-    created: int
-    "New messages."
-    updated: int
-    "Messages whose flags changed."
-    deleted: int
-    "Messages gone from the server."
-    folders: int
-    "Folders synced."
-    more: bool
-    "More mail is waiting (the backfill or a burst of new mail continues on the next sync)."
-    account: MailAccount
-    model_config = ConfigDict(frozen=True)
-
-    class Meta:
-        """Meta class for SyncResult"""
-
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment SyncResult on SyncResult {\n  created\n  updated\n  deleted\n  folders\n  more\n  account {\n    ...MailAccount\n    __typename\n  }\n  __typename\n}"
-        name = "SyncResult"
-        type = "SyncResult"
-
-
 class MailPreset(BaseModel):
     """Server settings of a well-known mail provider, to fill in a new mailbox."""
 
@@ -1618,7 +1822,7 @@ class MailPreset(BaseModel):
     oauth: bool
     "The provider is linked through OAuth (`startOAuthLink`)."
     oauth_configured: bool = Field(alias="oauthConfigured")
-    "This deployment has an OAuth client for it."
+    "The organization has an enabled provider for it (`mailProviders`)."
     note: str
     model_config = ConfigDict(frozen=True)
 
@@ -1659,66 +1863,6 @@ class Attachment(BaseModel):
         document = "fragment BigFileStore on BigFileStore {\n  id\n  path\n  bucket\n  key\n  sizeBytes\n  originalFileName\n  contentType\n  presignedUrl\n  __typename\n}\n\nfragment Attachment on Attachment {\n  id\n  position\n  filename\n  contentType\n  size\n  contentId\n  inline\n  store {\n    ...BigFileStore\n    __typename\n  }\n  __typename\n}"
         name = "Attachment"
         type = "Attachment"
-
-
-class DetailMailAccountSharedWith(BaseModel):
-    """A user account; sub is the stable subject identifier from the identity provider."""
-
-    typename: Literal["User"] = Field(alias="__typename", default="User", exclude=True)
-    id: ID
-    sub: str
-    preferred_username: str = Field(alias="preferredUsername")
-    model_config = ConfigDict(frozen=True)
-
-
-class DetailMailAccount(MailAccount, BaseModel):
-    """A linked mailbox. Private to the member who linked it unless shared (`visibility`)."""
-
-    typename: Literal["MailAccount"] = Field(
-        alias="__typename", default="MailAccount", exclude=True
-    )
-    incoming_host: str = Field(alias="incomingHost")
-    "The IMAP or POP3 server."
-    incoming_port: int = Field(alias="incomingPort")
-    "The IMAP or POP3 port."
-    incoming_security: Security = Field(alias="incomingSecurity")
-    "Transport security of the incoming connection."
-    smtp_host: str | None = Field(default=None, alias="smtpHost")
-    "The SMTP server; without one the mailbox cannot send."
-    smtp_port: int | None = Field(default=None, alias="smtpPort")
-    "The SMTP port."
-    smtp_security: Security = Field(alias="smtpSecurity")
-    "Transport security of the SMTP connection."
-    username: str
-    "The login name (usually the address)."
-    save_sent_copy: bool = Field(alias="saveSentCopy")
-    "Append sent mail to the Sent folder (off for Gmail and Microsoft, which keep a copy themselves)."
-    pop_leave_on_server: bool = Field(alias="popLeaveOnServer")
-    "POP3: keep downloaded mail on the server. Off deletes it there once stored."
-    push_seen: bool = Field(alias="pushSeen")
-    "Read/unread is pushed to the server (else kept here)."
-    push_flagged: bool = Field(alias="pushFlagged")
-    "Flagging is pushed to the server (else kept here)."
-    push_keywords: bool = Field(alias="pushKeywords")
-    "Keywords (KEYWORD categories) are pushed to the server (else kept here)."
-    push_moves: bool = Field(alias="pushMoves")
-    "Moves are pushed to the server (else refused)."
-    push_deletes: bool = Field(alias="pushDeletes")
-    "Deletes are pushed to the server (else only hidden here)."
-    server_side_folders: bool = Field(alias="serverSideFolders")
-    "Whether folders, moves and flags live on the server (IMAP). On POP3 flags are local and moves are refused."
-    shared_with: tuple[DetailMailAccountSharedWith, ...] = Field(alias="sharedWith")
-    "Members who see the mailbox when it is SHARED."
-    folders: tuple[MailFolder, ...]
-    "The mailbox's folders (a POP3 mailbox has one, its INBOX)."
-    model_config = ConfigDict(frozen=True)
-
-    class Meta:
-        """Meta class for DetailMailAccount"""
-
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  __typename\n}"
-        name = "DetailMailAccount"
-        type = "MailAccount"
 
 
 class ListMessageAccount(BaseModel):
@@ -1887,6 +2031,133 @@ class OutgoingMessage(BaseModel):
         type = "OutgoingMessage"
 
 
+class MailAccount(BaseModel):
+    """A linked mailbox. Private to the member who linked it unless shared (`visibility`)."""
+
+    typename: Literal["MailAccount"] = Field(
+        alias="__typename", default="MailAccount", exclude=True
+    )
+    id: ID
+    name: str
+    "A display name for the mailbox (e.g. 'Work')."
+    email_address: str = Field(alias="emailAddress")
+    "The mailbox's address; the From of sent mail."
+    display_name: str = Field(alias="displayName")
+    "The sender name of sent mail."
+    provider: Provider
+    "Who hosts the mailbox."
+    status: MailAccountStatus
+    "Where the mailbox is in its lifecycle."
+    visibility: Visibility
+    "Who in the organization sees the mailbox and its mail."
+    protocol: Protocol
+    "How incoming mail is read."
+    auth_method: AuthMethod = Field(alias="authMethod")
+    "How the service logs in."
+    capabilities: tuple[str, ...]
+    "What the incoming server announced (IMAP CAPABILITY, POP3 CAPA)."
+    last_synced_at: datetime | None = Field(default=None, alias="lastSyncedAt")
+    "When the last successful sync finished."
+    last_error: str | None = Field(default=None, alias="lastError")
+    "Why the last sync or connection failed, if it did."
+    last_error_code: MailErrorCode | None = Field(default=None, alias="lastErrorCode")
+    "The machine-readable kind of `last_error`."
+    backfill_done: bool = Field(alias="backfillDone")
+    "Every synced folder has reached the backfill window."
+    created_at: datetime = Field(alias="createdAt")
+    "When the mailbox was linked."
+    is_owner: bool = Field(alias="isOwner")
+    "Whether the caller linked the mailbox (and so may change its credentials, sharing, or delete it)."
+    can_send: bool = Field(alias="canSend")
+    "Whether the mailbox can send: it has an SMTP server, and its provider is enabled with SEND switched on."
+    syncing: bool
+    "Whether a sync holds the mailbox right now."
+    unread_count: int = Field(alias="unreadCount")
+    "Unread messages over the synced folders, as they are here."
+    pending_changes: int = Field(alias="pendingChanges")
+    "Changes made here that have not reached the server yet."
+    failed_changes: int = Field(alias="failedChanges")
+    "Changes made here that did not reach the server (see `mailChanges`)."
+    mail_provider: MailProviderRef | None = Field(default=None, alias="mailProvider")
+    "The organization's provider the mailbox was linked through (null: none any more; an admin has to set one up)."
+    model_config = ConfigDict(frozen=True)
+
+    class Meta:
+        """Meta class for MailAccount"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}"
+        name = "MailAccount"
+        type = "MailAccount"
+
+
+class MailProviderOauth(BaseModel):
+    """The OAuth client of a Gmail or Microsoft provider. Its secret is never returned."""
+
+    typename: Literal["OAuthClientSettings"] = Field(
+        alias="__typename", default="OAuthClientSettings", exclude=True
+    )
+    client_id: str = Field(alias="clientId")
+    "The OAuth client id."
+    redirect_urls: tuple[str, ...] = Field(alias="redirectUrls")
+    "The redirect URLs a login may use; the first is the default."
+    tenant: str
+    "Microsoft: the Entra tenant logins go through (`common`: any account)."
+    has_secret: bool = Field(alias="hasSecret")
+    "Whether a client secret is stored (a public client with PKCE has none)."
+    model_config = ConfigDict(frozen=True)
+
+
+class MailProviderServer(BaseModel):
+    """The servers of an IMAP provider: fixed by the admin, or left to each member (`fixed` false)."""
+
+    typename: Literal["MailServerSettings"] = Field(
+        alias="__typename", default="MailServerSettings", exclude=True
+    )
+    fixed: bool
+    "True: its mailboxes use these servers, members only give their login. False: members name the servers."
+    protocol: Protocol | None = Field(default=None)
+    "With fixed servers: how incoming mail is read."
+    incoming: ServerSettings | None = Field(default=None)
+    "With fixed servers: the IMAP or POP3 server."
+    smtp: ServerSettings | None = Field(default=None)
+    "With fixed servers: the SMTP server (null: its mailboxes cannot send)."
+    save_sent_copy: bool = Field(alias="saveSentCopy")
+    "Whether its mailboxes append sent mail to Sent."
+    model_config = ConfigDict(frozen=True)
+
+
+class MailProvider(MailProviderRef, BaseModel):
+    """A provider the organization's admins set up (an IMAP server, a Gmail or Microsoft OAuth client). Every mailbox is linked through one; credentials are never returned."""
+
+    typename: Literal["MailProvider"] = Field(
+        alias="__typename", default="MailProvider", exclude=True
+    )
+    enabled: bool
+    "A disabled provider links no mailbox, and its mailboxes neither sync, push nor send."
+    capabilities: tuple[ProviderCapability, ...]
+    "The capabilities switched on for this provider."
+    mailbox_count: int = Field(alias="mailboxCount")
+    "How many mailboxes of the organization are linked through it (all of them, whoever sees them)."
+    created_at: datetime = Field(alias="createdAt")
+    "When the provider was set up."
+    updated_at: datetime = Field(alias="updatedAt")
+    "When it was last changed."
+    kind_info: ProviderKind = Field(alias="kindInfo")
+    "What its kind is and can do."
+    oauth: MailProviderOauth | None = Field(default=None)
+    "Its OAuth client when it is a Gmail or Microsoft provider, else null."
+    server: MailProviderServer | None = Field(default=None)
+    "Its servers when it is an IMAP provider, else null."
+    model_config = ConfigDict(frozen=True)
+
+    class Meta:
+        """Meta class for MailProvider"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}"
+        name = "MailProvider"
+        type = "MailProvider"
+
+
 class Message(ListMessage, BaseModel):
     """A message in a folder. A copy in another folder is another message with the same `messageId`."""
 
@@ -1976,6 +2247,95 @@ class ListThread(BaseModel):
         type = "Thread"
 
 
+class DetailMailAccountSharedWith(BaseModel):
+    """A user account; sub is the stable subject identifier from the identity provider."""
+
+    typename: Literal["User"] = Field(alias="__typename", default="User", exclude=True)
+    id: ID
+    sub: str
+    preferred_username: str = Field(alias="preferredUsername")
+    model_config = ConfigDict(frozen=True)
+
+
+class DetailMailAccount(MailAccount, BaseModel):
+    """A linked mailbox. Private to the member who linked it unless shared (`visibility`)."""
+
+    typename: Literal["MailAccount"] = Field(
+        alias="__typename", default="MailAccount", exclude=True
+    )
+    incoming_host: str = Field(alias="incomingHost")
+    "The IMAP or POP3 server."
+    incoming_port: int = Field(alias="incomingPort")
+    "The IMAP or POP3 port."
+    incoming_security: Security = Field(alias="incomingSecurity")
+    "Transport security of the incoming connection."
+    smtp_host: str | None = Field(default=None, alias="smtpHost")
+    "The SMTP server; without one the mailbox cannot send."
+    smtp_port: int | None = Field(default=None, alias="smtpPort")
+    "The SMTP port."
+    smtp_security: Security = Field(alias="smtpSecurity")
+    "Transport security of the SMTP connection."
+    username: str
+    "The login name (usually the address)."
+    save_sent_copy: bool = Field(alias="saveSentCopy")
+    "Append sent mail to the Sent folder (off for Gmail and Microsoft, which keep a copy themselves)."
+    pop_leave_on_server: bool = Field(alias="popLeaveOnServer")
+    "POP3: keep downloaded mail on the server. Off deletes it there once stored."
+    push_seen: bool = Field(alias="pushSeen")
+    "Read/unread is pushed to the server (else kept here)."
+    push_flagged: bool = Field(alias="pushFlagged")
+    "Flagging is pushed to the server (else kept here)."
+    push_keywords: bool = Field(alias="pushKeywords")
+    "Keywords (KEYWORD categories) are pushed to the server (else kept here)."
+    push_moves: bool = Field(alias="pushMoves")
+    "Moves are pushed to the server (else refused)."
+    push_deletes: bool = Field(alias="pushDeletes")
+    "Deletes are pushed to the server (else only hidden here)."
+    server_side_folders: bool = Field(alias="serverSideFolders")
+    "Whether folders, moves and flags live on the server (IMAP). On POP3 flags are local and moves are refused."
+    shared_with: tuple[DetailMailAccountSharedWith, ...] = Field(alias="sharedWith")
+    "Members who see the mailbox when it is SHARED."
+    folders: tuple[MailFolder, ...]
+    "The mailbox's folders (a POP3 mailbox has one, its INBOX)."
+    pending_auth: AuthSession | None = Field(default=None, alias="pendingAuth")
+    "The re-link of this mailbox still to be finished, when you started it and it is PENDING: continue it with `resumeAuth(state)`. Null otherwise."
+    model_config = ConfigDict(frozen=True)
+
+    class Meta:
+        """Meta class for DetailMailAccount"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  pendingAuth {\n    ...AuthSession\n    __typename\n  }\n  __typename\n}"
+        name = "DetailMailAccount"
+        type = "MailAccount"
+
+
+class SyncResult(BaseModel):
+    """What one mailbox sync did."""
+
+    typename: Literal["SyncResult"] = Field(
+        alias="__typename", default="SyncResult", exclude=True
+    )
+    created: int
+    "New messages."
+    updated: int
+    "Messages whose flags changed."
+    deleted: int
+    "Messages gone from the server."
+    folders: int
+    "Folders synced."
+    more: bool
+    "More mail is waiting (the backfill or a burst of new mail continues on the next sync)."
+    account: MailAccount
+    model_config = ConfigDict(frozen=True)
+
+    class Meta:
+        """Meta class for SyncResult"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nfragment SyncResult on SyncResult {\n  created\n  updated\n  deleted\n  folders\n  more\n  account {\n    ...MailAccount\n    __typename\n  }\n  __typename\n}"
+        name = "SyncResult"
+        type = "SyncResult"
+
+
 class Task(ListTask, BaseModel):
     """Something to do, made of mail conversations from any mailbox its owner can see. Only its owner sees it. Its status is independent of the mail: finishing a task changes no message."""
 
@@ -2018,11 +2378,12 @@ class CreateMailAccountMutation(BaseModel):
     """No documentation found for this operation."""
 
     create_mail_account: DetailMailAccount = Field(alias="createMailAccount")
-    "Link a mailbox with a username and (app) password; the login is tested first."
+    "Link a mailbox with a username and (app) password through an IMAP provider; the login is tested first."
 
     class Arguments(BaseModel):
         """Arguments for CreateMailAccount"""
 
+        provider: ID
         email_address: str = Field(
             validation_alias=AliasChoices("email_address", "emailAddress"),
             serialization_alias="emailAddress",
@@ -2063,7 +2424,7 @@ class CreateMailAccountMutation(BaseModel):
     class Meta:
         """Meta class for CreateMailAccount"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  __typename\n}\n\nmutation CreateMailAccount($emailAddress: String!, $password: String!, $name: String, $displayName: String, $protocol: Protocol, $incoming: ServerInput, $smtp: ServerInput, $username: String, $smtpUsername: String, $smtpPassword: String, $saveSentCopy: Boolean, $popLeaveOnServer: Boolean, $visibility: Visibility) {\n  createMailAccount(\n    input: {emailAddress: $emailAddress, password: $password, name: $name, displayName: $displayName, protocol: $protocol, incoming: $incoming, smtp: $smtp, username: $username, smtpUsername: $smtpUsername, smtpPassword: $smtpPassword, saveSentCopy: $saveSentCopy, popLeaveOnServer: $popLeaveOnServer, visibility: $visibility}\n  ) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  pendingAuth {\n    ...AuthSession\n    __typename\n  }\n  __typename\n}\n\nmutation CreateMailAccount($provider: ID!, $emailAddress: String!, $password: String!, $name: String, $displayName: String, $protocol: Protocol, $incoming: ServerInput, $smtp: ServerInput, $username: String, $smtpUsername: String, $smtpPassword: String, $saveSentCopy: Boolean, $popLeaveOnServer: Boolean, $visibility: Visibility) {\n  createMailAccount(\n    input: {\n      provider: $provider\n      emailAddress: $emailAddress\n      password: $password\n      name: $name\n      displayName: $displayName\n      protocol: $protocol\n      incoming: $incoming\n      smtp: $smtp\n      username: $username\n      smtpUsername: $smtpUsername\n      smtpPassword: $smtpPassword\n      saveSentCopy: $saveSentCopy\n      popLeaveOnServer: $popLeaveOnServer\n      visibility: $visibility\n    }\n  ) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
 
 
 class UpdateMailAccountMutation(BaseModel):
@@ -2080,7 +2441,7 @@ class UpdateMailAccountMutation(BaseModel):
     class Meta:
         """Meta class for UpdateMailAccount"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  __typename\n}\n\nmutation UpdateMailAccount($input: UpdateMailAccountInput!) {\n  updateMailAccount(input: $input) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  pendingAuth {\n    ...AuthSession\n    __typename\n  }\n  __typename\n}\n\nmutation UpdateMailAccount($input: UpdateMailAccountInput!) {\n  updateMailAccount(input: $input) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
 
 
 class ShareMailAccountMutation(BaseModel):
@@ -2097,7 +2458,7 @@ class ShareMailAccountMutation(BaseModel):
     class Meta:
         """Meta class for ShareMailAccount"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  __typename\n}\n\nmutation ShareMailAccount($input: ShareMailAccountInput!) {\n  shareMailAccount(input: $input) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  pendingAuth {\n    ...AuthSession\n    __typename\n  }\n  __typename\n}\n\nmutation ShareMailAccount($input: ShareMailAccountInput!) {\n  shareMailAccount(input: $input) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
 
 
 class TestMailAccountMutation(BaseModel):
@@ -2114,7 +2475,7 @@ class TestMailAccountMutation(BaseModel):
     class Meta:
         """Meta class for TestMailAccount"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nmutation TestMailAccount($id: ID!) {\n  testMailAccount(id: $id) {\n    ...MailAccount\n    __typename\n  }\n}"
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nmutation TestMailAccount($id: ID!) {\n  testMailAccount(id: $id) {\n    ...MailAccount\n    __typename\n  }\n}"
 
 
 class DeleteMailAccountMutation(BaseModel):
@@ -2151,7 +2512,7 @@ class SyncMailAccountMutation(BaseModel):
     class Meta:
         """Meta class for SyncMailAccount"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment SyncResult on SyncResult {\n  created\n  updated\n  deleted\n  folders\n  more\n  account {\n    ...MailAccount\n    __typename\n  }\n  __typename\n}\n\nmutation SyncMailAccount($id: ID!, $folders: [ID!]) {\n  syncMailAccount(id: $id, folders: $folders) {\n    ...SyncResult\n    __typename\n  }\n}"
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nfragment SyncResult on SyncResult {\n  created\n  updated\n  deleted\n  folders\n  more\n  account {\n    ...MailAccount\n    __typename\n  }\n  __typename\n}\n\nmutation SyncMailAccount($id: ID!, $folders: [ID!]) {\n  syncMailAccount(id: $id, folders: $folders) {\n    ...SyncResult\n    __typename\n  }\n}"
 
 
 class PushMailChangesMutation(BaseModel):
@@ -2189,7 +2550,7 @@ class CreateCategoryMutation(BaseModel):
     class Meta:
         """Meta class for CreateCategory"""
 
-        document = "fragment Category on Category {\n  id\n  name\n  color\n  sync\n  keyword\n  createdAt\n  messageCount\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nmutation CreateCategory($account: ID!, $name: String!, $color: String, $sync: CategorySync, $keyword: String) {\n  createCategory(\n    input: {account: $account, name: $name, color: $color, sync: $sync, keyword: $keyword}\n  ) {\n    ...Category\n    __typename\n  }\n}"
+        document = "fragment Category on Category {\n  id\n  name\n  color\n  sync\n  keyword\n  createdAt\n  messageCount\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nmutation CreateCategory($account: ID!, $name: String!, $color: String, $sync: CategorySync, $keyword: String) {\n  createCategory(\n    input: {\n      account: $account\n      name: $name\n      color: $color\n      sync: $sync\n      keyword: $keyword\n    }\n  ) {\n    ...Category\n    __typename\n  }\n}"
 
 
 class UpdateCategoryMutation(BaseModel):
@@ -2215,7 +2576,7 @@ class UpdateCategoryMutation(BaseModel):
     class Meta:
         """Meta class for UpdateCategory"""
 
-        document = "fragment Category on Category {\n  id\n  name\n  color\n  sync\n  keyword\n  createdAt\n  messageCount\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nmutation UpdateCategory($id: ID!, $name: String, $color: String, $sync: CategorySync, $keyword: String, $removeKeywords: Boolean) {\n  updateCategory(\n    input: {id: $id, name: $name, color: $color, sync: $sync, keyword: $keyword, removeKeywords: $removeKeywords}\n  ) {\n    ...Category\n    __typename\n  }\n}"
+        document = "fragment Category on Category {\n  id\n  name\n  color\n  sync\n  keyword\n  createdAt\n  messageCount\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nmutation UpdateCategory($id: ID!, $name: String, $color: String, $sync: CategorySync, $keyword: String, $removeKeywords: Boolean) {\n  updateCategory(\n    input: {\n      id: $id\n      name: $name\n      color: $color\n      sync: $sync\n      keyword: $keyword\n      removeKeywords: $removeKeywords\n    }\n  ) {\n    ...Category\n    __typename\n  }\n}"
 
 
 class DeleteCategoryMutation(BaseModel):
@@ -2273,7 +2634,7 @@ class SetMessageFlagsMutation(BaseModel):
     class Meta:
         """Meta class for SetMessageFlags"""
 
-        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nmutation SetMessageFlags($messages: [ID!]!, $add: [String!], $remove: [String!]) {\n  setMessageFlags(input: {messages: $messages, add: $add, remove: $remove}) {\n    ...ListMessage\n    __typename\n  }\n}"
+        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nmutation SetMessageFlags($messages: [ID!]!, $add: [String!], $remove: [String!]) {\n  setMessageFlags(input: { messages: $messages, add: $add, remove: $remove }) {\n    ...ListMessage\n    __typename\n  }\n}"
 
 
 class MarkMessagesReadMutation(BaseModel):
@@ -2291,7 +2652,7 @@ class MarkMessagesReadMutation(BaseModel):
     class Meta:
         """Meta class for MarkMessagesRead"""
 
-        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nmutation MarkMessagesRead($messages: [ID!]!, $read: Boolean) {\n  markMessagesRead(input: {messages: $messages, read: $read}) {\n    ...ListMessage\n    __typename\n  }\n}"
+        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nmutation MarkMessagesRead($messages: [ID!]!, $read: Boolean) {\n  markMessagesRead(input: { messages: $messages, read: $read }) {\n    ...ListMessage\n    __typename\n  }\n}"
 
 
 class MoveMessagesMutation(BaseModel):
@@ -2327,7 +2688,7 @@ class CategorizeMessagesMutation(BaseModel):
     class Meta:
         """Meta class for CategorizeMessages"""
 
-        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nmutation CategorizeMessages($messages: [ID!]!, $add: [ID!], $remove: [ID!]) {\n  categorizeMessages(input: {messages: $messages, add: $add, remove: $remove}) {\n    ...ListMessage\n    __typename\n  }\n}"
+        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nmutation CategorizeMessages($messages: [ID!]!, $add: [ID!], $remove: [ID!]) {\n  categorizeMessages(input: { messages: $messages, add: $add, remove: $remove }) {\n    ...ListMessage\n    __typename\n  }\n}"
 
 
 class UndoMailChangesMutation(BaseModel):
@@ -2375,7 +2736,7 @@ class DeleteMessagesMutation(BaseModel):
     class Meta:
         """Meta class for DeleteMessages"""
 
-        document = "mutation DeleteMessages($messages: [ID!]!, $permanent: Boolean) {\n  deleteMessages(input: {messages: $messages, permanent: $permanent}) {\n    deleted\n    __typename\n  }\n}"
+        document = "mutation DeleteMessages($messages: [ID!]!, $permanent: Boolean) {\n  deleteMessages(input: { messages: $messages, permanent: $permanent }) {\n    deleted\n    __typename\n  }\n}"
 
 
 class RevertMessagesToServerMutation(BaseModel):
@@ -2418,12 +2779,12 @@ class StartOAuthLinkMutation(BaseModel):
     """No documentation found for this operation."""
 
     start_o_auth_link: AuthSession = Field(alias="startOAuthLink")
-    "Start linking (or re-linking) a mailbox through OAuth."
+    "Start linking (or re-linking) a mailbox through a Gmail or Microsoft provider."
 
     class Arguments(BaseModel):
         """Arguments for StartOAuthLink"""
 
-        provider: Provider
+        provider: ID | None = Field(default=None)
         protocol: Protocol | None = Field(default=None)
         redirect_url: str | None = Field(
             validation_alias=AliasChoices("redirect_url", "redirectUrl"),
@@ -2441,58 +2802,58 @@ class StartOAuthLinkMutation(BaseModel):
     class Meta:
         """Meta class for StartOAuthLink"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  openUrl\n  expiresAt\n  finish\n  redirectUrl\n  provider\n  account {\n    ...MailAccount\n    __typename\n  }\n  __typename\n}\n\nmutation StartOAuthLink($provider: Provider!, $protocol: Protocol, $redirectUrl: String, $name: String, $account: ID, $loginHint: String) {\n  startOAuthLink(\n    input: {provider: $provider, protocol: $protocol, redirectUrl: $redirectUrl, name: $name, account: $account, loginHint: $loginHint}\n  ) {\n    ...AuthSession\n    __typename\n  }\n}"
+        document = "fragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nmutation StartOAuthLink($provider: ID, $protocol: Protocol, $redirectUrl: String, $name: String, $account: ID, $loginHint: String) {\n  startOAuthLink(\n    input: {\n      provider: $provider\n      protocol: $protocol\n      redirectUrl: $redirectUrl\n      name: $name\n      account: $account\n      loginHint: $loginHint\n    }\n  ) {\n    ...AuthSession\n    __typename\n  }\n}"
 
 
-class CompleteOAuthLinkMutation(BaseModel):
+class CompleteAuthMutation(BaseModel):
     """No documentation found for this operation."""
 
-    complete_o_auth_link: DetailMailAccount = Field(alias="completeOAuthLink")
-    "Finish an OAuth login with the redirect's code and state."
+    complete_auth: AuthSession = Field(alias="completeAuth")
+    "REDIRECT: finish with the code. POLL: advance one step; call until not PENDING."
 
     class Arguments(BaseModel):
-        """Arguments for CompleteOAuthLink"""
+        """Arguments for CompleteAuth"""
 
-        input: CompleteOAuthLinkInput
+        input: CompleteAuthInput
 
     class Meta:
-        """Meta class for CompleteOAuthLink"""
+        """Meta class for CompleteAuth"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  __typename\n}\n\nmutation CompleteOAuthLink($input: CompleteOAuthLinkInput!) {\n  completeOAuthLink(input: $input) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
+        document = "fragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nmutation CompleteAuth($input: CompleteAuthInput!) {\n  completeAuth(input: $input) {\n    ...AuthSession\n    __typename\n  }\n}"
 
 
-class ResumeOAuthLinkMutation(BaseModel):
+class ResumeAuthMutation(BaseModel):
     """No documentation found for this operation."""
 
-    resume_o_auth_link: AuthSession = Field(alias="resumeOAuthLink")
-    "The caller's pending OAuth login again."
+    resume_auth: AuthSession = Field(alias="resumeAuth")
+    "The same login again (a fresh openUrl if the old one cannot be reused)."
 
     class Arguments(BaseModel):
-        """Arguments for ResumeOAuthLink"""
+        """Arguments for ResumeAuth"""
 
         state: str
 
     class Meta:
-        """Meta class for ResumeOAuthLink"""
+        """Meta class for ResumeAuth"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  openUrl\n  expiresAt\n  finish\n  redirectUrl\n  provider\n  account {\n    ...MailAccount\n    __typename\n  }\n  __typename\n}\n\nmutation ResumeOAuthLink($state: String!) {\n  resumeOAuthLink(state: $state) {\n    ...AuthSession\n    __typename\n  }\n}"
+        document = "fragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nmutation ResumeAuth($state: String!) {\n  resumeAuth(state: $state) {\n    ...AuthSession\n    __typename\n  }\n}"
 
 
-class CancelOAuthLinkMutation(BaseModel):
+class CancelAuthMutation(BaseModel):
     """No documentation found for this operation."""
 
-    cancel_o_auth_link: str = Field(alias="cancelOAuthLink")
-    "Drop the caller's pending OAuth login."
+    cancel_auth: AuthSession = Field(alias="cancelAuth")
+    "Drop a login that will not be finished. Idempotent."
 
     class Arguments(BaseModel):
-        """Arguments for CancelOAuthLink"""
+        """Arguments for CancelAuth"""
 
         state: str
 
     class Meta:
-        """Meta class for CancelOAuthLink"""
+        """Meta class for CancelAuth"""
 
-        document = "mutation CancelOAuthLink($state: String!) {\n  cancelOAuthLink(state: $state)\n}"
+        document = "fragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nmutation CancelAuth($state: String!) {\n  cancelAuth(state: $state) {\n    ...AuthSession\n    __typename\n  }\n}"
 
 
 class SendMessageMutation(BaseModel):
@@ -2521,7 +2882,120 @@ class SendMessageMutation(BaseModel):
     class Meta:
         """Meta class for SendMessage"""
 
-        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment BigFileStore on BigFileStore {\n  id\n  path\n  bucket\n  key\n  sizeBytes\n  originalFileName\n  contentType\n  presignedUrl\n  __typename\n}\n\nfragment RefusedRecipient on RefusedRecipient {\n  address\n  code\n  message\n  __typename\n}\n\nfragment OutgoingMessage on OutgoingMessage {\n  id\n  status\n  subject\n  textBody\n  htmlBody\n  messageId\n  savedToSent\n  error\n  errorCode\n  createdAt\n  sentAt\n  account {\n    id\n    __typename\n  }\n  inReplyTo {\n    id\n    __typename\n  }\n  to {\n    ...Address\n    __typename\n  }\n  cc {\n    ...Address\n    __typename\n  }\n  bcc {\n    ...Address\n    __typename\n  }\n  refused {\n    ...RefusedRecipient\n    __typename\n  }\n  attachments {\n    ...BigFileStore\n    __typename\n  }\n  __typename\n}\n\nmutation SendMessage($account: ID!, $to: [RecipientInput!], $cc: [RecipientInput!], $bcc: [RecipientInput!], $subject: String, $text: String, $html: String, $inReplyTo: ID, $attachments: [String!]) {\n  sendMessage(\n    input: {account: $account, to: $to, cc: $cc, bcc: $bcc, subject: $subject, text: $text, html: $html, inReplyTo: $inReplyTo, attachments: $attachments}\n  ) {\n    ...OutgoingMessage\n    __typename\n  }\n}"
+        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment BigFileStore on BigFileStore {\n  id\n  path\n  bucket\n  key\n  sizeBytes\n  originalFileName\n  contentType\n  presignedUrl\n  __typename\n}\n\nfragment RefusedRecipient on RefusedRecipient {\n  address\n  code\n  message\n  __typename\n}\n\nfragment OutgoingMessage on OutgoingMessage {\n  id\n  status\n  subject\n  textBody\n  htmlBody\n  messageId\n  savedToSent\n  error\n  errorCode\n  createdAt\n  sentAt\n  account {\n    id\n    __typename\n  }\n  inReplyTo {\n    id\n    __typename\n  }\n  to {\n    ...Address\n    __typename\n  }\n  cc {\n    ...Address\n    __typename\n  }\n  bcc {\n    ...Address\n    __typename\n  }\n  refused {\n    ...RefusedRecipient\n    __typename\n  }\n  attachments {\n    ...BigFileStore\n    __typename\n  }\n  __typename\n}\n\nmutation SendMessage($account: ID!, $to: [RecipientInput!], $cc: [RecipientInput!], $bcc: [RecipientInput!], $subject: String, $text: String, $html: String, $inReplyTo: ID, $attachments: [String!]) {\n  sendMessage(\n    input: {\n      account: $account\n      to: $to\n      cc: $cc\n      bcc: $bcc\n      subject: $subject\n      text: $text\n      html: $html\n      inReplyTo: $inReplyTo\n      attachments: $attachments\n    }\n  ) {\n    ...OutgoingMessage\n    __typename\n  }\n}"
+
+
+class CreateServerProviderMutation(BaseModel):
+    """A provider an admin sets up for the organization, through which its mailboxes are
+    linked: a server provider (IMAP/POP3 + SMTP, the servers fixed or left to each link)
+    or an OAuth client (Gmail, Microsoft)."""
+
+    create_server_provider: MailProvider = Field(alias="createServerProvider")
+    "Admins: set up an IMAP provider, with fixed servers or open to any."
+
+    class Arguments(BaseModel):
+        """Arguments for CreateServerProvider"""
+
+        name: str
+        protocol: Protocol | None = Field(default=None)
+        incoming: ServerInput | None = Field(default=None)
+        smtp: ServerInput | None = Field(default=None)
+        save_sent_copy: bool | None = Field(
+            validation_alias=AliasChoices("save_sent_copy", "saveSentCopy"),
+            serialization_alias="saveSentCopy",
+            default=None,
+        )
+        capabilities: list[ProviderCapability] | None = Field(default=None)
+
+    class Meta:
+        """Meta class for CreateServerProvider"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}\n\nmutation CreateServerProvider($name: String!, $protocol: Protocol, $incoming: ServerInput, $smtp: ServerInput, $saveSentCopy: Boolean, $capabilities: [ProviderCapability!]) {\n  createServerProvider(\n    input: {\n      name: $name\n      protocol: $protocol\n      incoming: $incoming\n      smtp: $smtp\n      saveSentCopy: $saveSentCopy\n      capabilities: $capabilities\n    }\n  ) {\n    ...MailProvider\n    __typename\n  }\n}"
+
+
+class CreateOAuthProviderMutation(BaseModel):
+    """No documentation found for this operation."""
+
+    create_o_auth_provider: MailProvider = Field(alias="createOAuthProvider")
+    "Admins: set up a Gmail or Microsoft OAuth client as a provider."
+
+    class Arguments(BaseModel):
+        """Arguments for CreateOAuthProvider"""
+
+        input: CreateOAuthProviderInput
+
+    class Meta:
+        """Meta class for CreateOAuthProvider"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}\n\nmutation CreateOAuthProvider($input: CreateOAuthProviderInput!) {\n  createOAuthProvider(input: $input) {\n    ...MailProvider\n    __typename\n  }\n}"
+
+
+class UpdateServerProviderMutation(BaseModel):
+    """No documentation found for this operation."""
+
+    update_server_provider: MailProvider = Field(alias="updateServerProvider")
+    "Admins: change an IMAP provider; its mailboxes follow new fixed servers."
+
+    class Arguments(BaseModel):
+        """Arguments for UpdateServerProvider"""
+
+        input: UpdateServerProviderInput
+
+    class Meta:
+        """Meta class for UpdateServerProvider"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}\n\nmutation UpdateServerProvider($input: UpdateServerProviderInput!) {\n  updateServerProvider(input: $input) {\n    ...MailProvider\n    __typename\n  }\n}"
+
+
+class UpdateOAuthProviderMutation(BaseModel):
+    """No documentation found for this operation."""
+
+    update_o_auth_provider: MailProvider = Field(alias="updateOAuthProvider")
+    "Admins: change a Gmail or Microsoft provider; an empty secret keeps the stored one."
+
+    class Arguments(BaseModel):
+        """Arguments for UpdateOAuthProvider"""
+
+        input: UpdateOAuthProviderInput
+
+    class Meta:
+        """Meta class for UpdateOAuthProvider"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}\n\nmutation UpdateOAuthProvider($input: UpdateOAuthProviderInput!) {\n  updateOAuthProvider(input: $input) {\n    ...MailProvider\n    __typename\n  }\n}"
+
+
+class UpdateProviderMutation(BaseModel):
+    """No documentation found for this operation."""
+
+    update_provider: MailProvider = Field(alias="updateProvider")
+    "Admins: rename, enable or disable any provider, or change its capabilities."
+
+    class Arguments(BaseModel):
+        """Arguments for UpdateProvider"""
+
+        input: UpdateProviderInput
+
+    class Meta:
+        """Meta class for UpdateProvider"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}\n\nmutation UpdateProvider($input: UpdateProviderInput!) {\n  updateProvider(input: $input) {\n    ...MailProvider\n    __typename\n  }\n}"
+
+
+class DeleteProviderMutation(BaseModel):
+    """No documentation found for this operation."""
+
+    delete_provider: ID = Field(alias="deleteProvider")
+    "Admins: remove a provider no mailbox goes through."
+
+    class Arguments(BaseModel):
+        """Arguments for DeleteProvider"""
+
+        id: ID
+
+    class Meta:
+        """Meta class for DeleteProvider"""
+
+        document = "mutation DeleteProvider($id: ID!) {\n  deleteProvider(id: $id)\n}"
 
 
 class CreateTaskListMutation(BaseModel):
@@ -2540,7 +3014,7 @@ class CreateTaskListMutation(BaseModel):
     class Meta:
         """Meta class for CreateTaskList"""
 
-        document = "fragment TaskList on TaskList {\n  id\n  name\n  color\n  position\n  createdAt\n  openCount\n  __typename\n}\n\nmutation CreateTaskList($name: String!, $color: String, $position: Float) {\n  createTaskList(input: {name: $name, color: $color, position: $position}) {\n    ...TaskList\n    __typename\n  }\n}"
+        document = "fragment TaskList on TaskList {\n  id\n  name\n  color\n  position\n  createdAt\n  openCount\n  __typename\n}\n\nmutation CreateTaskList($name: String!, $color: String, $position: Float) {\n  createTaskList(input: { name: $name, color: $color, position: $position }) {\n    ...TaskList\n    __typename\n  }\n}"
 
 
 class UpdateTaskListMutation(BaseModel):
@@ -2611,7 +3085,7 @@ class CreateTaskMutation(BaseModel):
     class Meta:
         """Meta class for CreateTask"""
 
-        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nfragment ListTask on Task {\n  id\n  title\n  notes\n  status\n  pinned\n  dueAt\n  snoozedUntil\n  snoozed\n  position\n  externalKey\n  completedAt\n  createdAt\n  updatedAt\n  threadCount\n  unreadCount\n  list {\n    id\n    name\n    __typename\n  }\n  __typename\n}\n\nfragment ListThread on Thread {\n  id\n  subject\n  lastMessageAt\n  messageCount\n  unread\n  flagged\n  hasAttachments\n  participants {\n    ...Address\n    __typename\n  }\n  account {\n    id\n    __typename\n  }\n  latestMessage {\n    ...ListMessage\n    __typename\n  }\n  __typename\n}\n\nfragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nfragment Task on Task {\n  ...ListTask\n  links {\n    ...TaskThread\n    __typename\n  }\n  threads {\n    ...ListThread\n    __typename\n  }\n  __typename\n}\n\nmutation CreateTask($title: String!, $notes: String, $taskList: ID, $dueAt: DateTime, $pinned: Boolean, $position: Float, $externalKey: String, $threads: [ID!], $link: ThreadLinkInput) {\n  createTask(\n    input: {title: $title, notes: $notes, list: $taskList, dueAt: $dueAt, pinned: $pinned, position: $position, externalKey: $externalKey, threads: $threads, link: $link}\n  ) {\n    ...Task\n    __typename\n  }\n}"
+        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nfragment ListTask on Task {\n  id\n  title\n  notes\n  status\n  pinned\n  dueAt\n  snoozedUntil\n  snoozed\n  position\n  externalKey\n  completedAt\n  createdAt\n  updatedAt\n  threadCount\n  unreadCount\n  list {\n    id\n    name\n    __typename\n  }\n  __typename\n}\n\nfragment ListThread on Thread {\n  id\n  subject\n  lastMessageAt\n  messageCount\n  unread\n  flagged\n  hasAttachments\n  participants {\n    ...Address\n    __typename\n  }\n  account {\n    id\n    __typename\n  }\n  latestMessage {\n    ...ListMessage\n    __typename\n  }\n  __typename\n}\n\nfragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nfragment Task on Task {\n  ...ListTask\n  links {\n    ...TaskThread\n    __typename\n  }\n  threads {\n    ...ListThread\n    __typename\n  }\n  __typename\n}\n\nmutation CreateTask($title: String!, $notes: String, $taskList: ID, $dueAt: DateTime, $pinned: Boolean, $position: Float, $externalKey: String, $threads: [ID!], $link: ThreadLinkInput) {\n  createTask(\n    input: {\n      title: $title\n      notes: $notes\n      list: $taskList\n      dueAt: $dueAt\n      pinned: $pinned\n      position: $position\n      externalKey: $externalKey\n      threads: $threads\n      link: $link\n    }\n  ) {\n    ...Task\n    __typename\n  }\n}"
 
 
 class UpsertTaskMutation(BaseModel):
@@ -2646,7 +3120,7 @@ class UpsertTaskMutation(BaseModel):
     class Meta:
         """Meta class for UpsertTask"""
 
-        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nfragment ListTask on Task {\n  id\n  title\n  notes\n  status\n  pinned\n  dueAt\n  snoozedUntil\n  snoozed\n  position\n  externalKey\n  completedAt\n  createdAt\n  updatedAt\n  threadCount\n  unreadCount\n  list {\n    id\n    name\n    __typename\n  }\n  __typename\n}\n\nfragment ListThread on Thread {\n  id\n  subject\n  lastMessageAt\n  messageCount\n  unread\n  flagged\n  hasAttachments\n  participants {\n    ...Address\n    __typename\n  }\n  account {\n    id\n    __typename\n  }\n  latestMessage {\n    ...ListMessage\n    __typename\n  }\n  __typename\n}\n\nfragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nfragment Task on Task {\n  ...ListTask\n  links {\n    ...TaskThread\n    __typename\n  }\n  threads {\n    ...ListThread\n    __typename\n  }\n  __typename\n}\n\nmutation UpsertTask($externalKey: String!, $title: String!, $notes: String, $taskList: ID, $dueAt: DateTime, $pinned: Boolean, $threads: [ID!], $link: ThreadLinkInput) {\n  upsertTask(\n    input: {externalKey: $externalKey, title: $title, notes: $notes, list: $taskList, dueAt: $dueAt, pinned: $pinned, threads: $threads, link: $link}\n  ) {\n    ...Task\n    __typename\n  }\n}"
+        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nfragment ListTask on Task {\n  id\n  title\n  notes\n  status\n  pinned\n  dueAt\n  snoozedUntil\n  snoozed\n  position\n  externalKey\n  completedAt\n  createdAt\n  updatedAt\n  threadCount\n  unreadCount\n  list {\n    id\n    name\n    __typename\n  }\n  __typename\n}\n\nfragment ListThread on Thread {\n  id\n  subject\n  lastMessageAt\n  messageCount\n  unread\n  flagged\n  hasAttachments\n  participants {\n    ...Address\n    __typename\n  }\n  account {\n    id\n    __typename\n  }\n  latestMessage {\n    ...ListMessage\n    __typename\n  }\n  __typename\n}\n\nfragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nfragment Task on Task {\n  ...ListTask\n  links {\n    ...TaskThread\n    __typename\n  }\n  threads {\n    ...ListThread\n    __typename\n  }\n  __typename\n}\n\nmutation UpsertTask($externalKey: String!, $title: String!, $notes: String, $taskList: ID, $dueAt: DateTime, $pinned: Boolean, $threads: [ID!], $link: ThreadLinkInput) {\n  upsertTask(\n    input: {\n      externalKey: $externalKey\n      title: $title\n      notes: $notes\n      list: $taskList\n      dueAt: $dueAt\n      pinned: $pinned\n      threads: $threads\n      link: $link\n    }\n  ) {\n    ...Task\n    __typename\n  }\n}"
 
 
 class UpdateTaskMutation(BaseModel):
@@ -2736,7 +3210,7 @@ class LinkThreadsMutation(BaseModel):
     class Meta:
         """Meta class for LinkThreads"""
 
-        document = "fragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nmutation LinkThreads($taskId: ID!, $threads: [ID!]!, $link: ThreadLinkInput) {\n  linkThreads(input: {task: $taskId, threads: $threads, link: $link}) {\n    ...TaskThread\n    __typename\n  }\n}"
+        document = "fragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nmutation LinkThreads($taskId: ID!, $threads: [ID!]!, $link: ThreadLinkInput) {\n  linkThreads(input: { task: $taskId, threads: $threads, link: $link }) {\n    ...TaskThread\n    __typename\n  }\n}"
 
 
 class UnlinkThreadsMutation(BaseModel):
@@ -2757,7 +3231,7 @@ class UnlinkThreadsMutation(BaseModel):
     class Meta:
         """Meta class for UnlinkThreads"""
 
-        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nfragment ListTask on Task {\n  id\n  title\n  notes\n  status\n  pinned\n  dueAt\n  snoozedUntil\n  snoozed\n  position\n  externalKey\n  completedAt\n  createdAt\n  updatedAt\n  threadCount\n  unreadCount\n  list {\n    id\n    name\n    __typename\n  }\n  __typename\n}\n\nfragment ListThread on Thread {\n  id\n  subject\n  lastMessageAt\n  messageCount\n  unread\n  flagged\n  hasAttachments\n  participants {\n    ...Address\n    __typename\n  }\n  account {\n    id\n    __typename\n  }\n  latestMessage {\n    ...ListMessage\n    __typename\n  }\n  __typename\n}\n\nfragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nfragment Task on Task {\n  ...ListTask\n  links {\n    ...TaskThread\n    __typename\n  }\n  threads {\n    ...ListThread\n    __typename\n  }\n  __typename\n}\n\nmutation UnlinkThreads($taskId: ID!, $threads: [ID!]!) {\n  unlinkThreads(input: {task: $taskId, threads: $threads}) {\n    ...Task\n    __typename\n  }\n}"
+        document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment ListMessage on Message {\n  id\n  subject\n  sender {\n    ...Address\n    __typename\n  }\n  date\n  receivedAt\n  snippet\n  flags\n  isRead\n  isFlagged\n  isAnswered\n  hasAttachments\n  syncState\n  account {\n    id\n    __typename\n  }\n  folder {\n    id\n    role\n    __typename\n  }\n  thread {\n    id\n    __typename\n  }\n  categories {\n    id\n    name\n    color\n    __typename\n  }\n  __typename\n}\n\nfragment ListTask on Task {\n  id\n  title\n  notes\n  status\n  pinned\n  dueAt\n  snoozedUntil\n  snoozed\n  position\n  externalKey\n  completedAt\n  createdAt\n  updatedAt\n  threadCount\n  unreadCount\n  list {\n    id\n    name\n    __typename\n  }\n  __typename\n}\n\nfragment ListThread on Thread {\n  id\n  subject\n  lastMessageAt\n  messageCount\n  unread\n  flagged\n  hasAttachments\n  participants {\n    ...Address\n    __typename\n  }\n  account {\n    id\n    __typename\n  }\n  latestMessage {\n    ...ListMessage\n    __typename\n  }\n  __typename\n}\n\nfragment TaskThread on TaskThread {\n  id\n  source\n  confidence\n  reason\n  position\n  createdAt\n  task {\n    id\n    __typename\n  }\n  thread {\n    id\n    subject\n    __typename\n  }\n  __typename\n}\n\nfragment Task on Task {\n  ...ListTask\n  links {\n    ...TaskThread\n    __typename\n  }\n  threads {\n    ...ListThread\n    __typename\n  }\n  __typename\n}\n\nmutation UnlinkThreads($taskId: ID!, $threads: [ID!]!) {\n  unlinkThreads(input: { task: $taskId, threads: $threads }) {\n    ...Task\n    __typename\n  }\n}"
 
 
 class RequestBigfileUploadMutation(BaseModel):
@@ -2795,7 +3269,7 @@ class FinishBigfileUploadMutation(BaseModel):
     class Meta:
         """Meta class for FinishBigfileUpload"""
 
-        document = "fragment BigFileStore on BigFileStore {\n  id\n  path\n  bucket\n  key\n  sizeBytes\n  originalFileName\n  contentType\n  presignedUrl\n  __typename\n}\n\nmutation FinishBigfileUpload($storeId: String!, $valid: Boolean) {\n  finishBigfileUpload(input: {storeId: $storeId, valid: $valid}) {\n    ...BigFileStore\n    __typename\n  }\n}"
+        document = "fragment BigFileStore on BigFileStore {\n  id\n  path\n  bucket\n  key\n  sizeBytes\n  originalFileName\n  contentType\n  presignedUrl\n  __typename\n}\n\nmutation FinishBigfileUpload($storeId: String!, $valid: Boolean) {\n  finishBigfileUpload(input: { storeId: $storeId, valid: $valid }) {\n    ...BigFileStore\n    __typename\n  }\n}"
 
 
 class GetMailAccountQuery(BaseModel):
@@ -2812,7 +3286,7 @@ class GetMailAccountQuery(BaseModel):
     class Meta:
         """Meta class for GetMailAccount"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  __typename\n}\n\nquery GetMailAccount($id: ID!) {\n  mailAccount(id: $id) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nfragment MailFolder on MailFolder {\n  id\n  path\n  name\n  role\n  selectable\n  syncEnabled\n  existsOnServer\n  totalCount\n  unreadCount\n  serverUnreadCount\n  keywordsAllowed\n  backfillDone\n  lastSyncedAt\n  account {\n    id\n    __typename\n  }\n  __typename\n}\n\nfragment DetailMailAccount on MailAccount {\n  ...MailAccount\n  incomingHost\n  incomingPort\n  incomingSecurity\n  smtpHost\n  smtpPort\n  smtpSecurity\n  username\n  saveSentCopy\n  popLeaveOnServer\n  pushSeen\n  pushFlagged\n  pushKeywords\n  pushMoves\n  pushDeletes\n  serverSideFolders\n  sharedWith {\n    id\n    sub\n    preferredUsername\n    __typename\n  }\n  folders {\n    ...MailFolder\n    __typename\n  }\n  pendingAuth {\n    ...AuthSession\n    __typename\n  }\n  __typename\n}\n\nquery GetMailAccount($id: ID!) {\n  mailAccount(id: $id) {\n    ...DetailMailAccount\n    __typename\n  }\n}"
 
 
 class ListMailAccountsQuery(BaseModel):
@@ -2830,7 +3304,7 @@ class ListMailAccountsQuery(BaseModel):
     class Meta:
         """Meta class for ListMailAccounts"""
 
-        document = "fragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  __typename\n}\n\nquery ListMailAccounts($filter: MailAccountFilter, $pagination: OffsetPaginationInput) {\n  mailAccounts(filters: $filter, pagination: $pagination) {\n    ...MailAccount\n    __typename\n  }\n}"
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment MailAccount on MailAccount {\n  id\n  name\n  emailAddress\n  displayName\n  provider\n  status\n  visibility\n  protocol\n  authMethod\n  capabilities\n  lastSyncedAt\n  lastError\n  lastErrorCode\n  backfillDone\n  createdAt\n  isOwner\n  canSend\n  syncing\n  unreadCount\n  pendingChanges\n  failedChanges\n  mailProvider {\n    ...MailProviderRef\n    __typename\n  }\n  __typename\n}\n\nquery ListMailAccounts($filter: MailAccountFilter, $pagination: OffsetPaginationInput) {\n  mailAccounts(filters: $filter, pagination: $pagination) {\n    ...MailAccount\n    __typename\n  }\n}"
 
 
 class MailPresetsQuery(BaseModel):
@@ -2850,19 +3324,21 @@ class MailPresetsQuery(BaseModel):
         document = "fragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailPreset on MailPreset {\n  key\n  name\n  domains\n  provider\n  imap {\n    ...ServerSettings\n    __typename\n  }\n  pop3 {\n    ...ServerSettings\n    __typename\n  }\n  smtp {\n    ...ServerSettings\n    __typename\n  }\n  saveSentCopy\n  oauth\n  oauthConfigured\n  note\n  __typename\n}\n\nquery MailPresets($address: String) {\n  mailPresets(address: $address) {\n    ...MailPreset\n    __typename\n  }\n}"
 
 
-class OAuthProvidersQuery(BaseModel):
+class GetAuthSessionQuery(BaseModel):
     """No documentation found for this operation."""
 
-    oauth_providers: tuple[Provider, ...] = Field(alias="oauthProviders")
-    "Providers this deployment can link through OAuth."
+    auth_session: AuthSession = Field(alias="authSession")
+    "Where a login is. No side effect."
 
     class Arguments(BaseModel):
-        """Arguments for OAuthProviders"""
+        """Arguments for GetAuthSession"""
+
+        state: str
 
     class Meta:
-        """Meta class for OAuthProviders"""
+        """Meta class for GetAuthSession"""
 
-        document = "query OAuthProviders {\n  oauthProviders\n}"
+        document = "fragment AuthSession on AuthSession {\n  state\n  status\n  finish\n  openUrl\n  expiresAt\n  redirectUrl\n  interval\n  userCode\n  step\n  errorCode\n  errorMessage\n  result {\n    identifier\n    id\n    label\n    __typename\n  }\n  __typename\n}\n\nquery GetAuthSession($state: String!) {\n  authSession(state: $state) {\n    ...AuthSession\n    __typename\n  }\n}"
 
 
 class SearchMailAccountsQueryOptions(BaseModel):
@@ -2894,7 +3370,7 @@ class SearchMailAccountsQuery(BaseModel):
     class Meta:
         """Meta class for SearchMailAccounts"""
 
-        document = "query SearchMailAccounts($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: mailAccounts(\n    filters: {search: $search, ids: $values}\n    pagination: {limit: $limit, offset: $offset}\n  ) {\n    value: id\n    label: emailAddress\n    __typename\n  }\n}"
+        document = "query SearchMailAccounts($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: mailAccounts(\n    filters: { search: $search, ids: $values }\n    pagination: { limit: $limit, offset: $offset }\n  ) {\n    value: id\n    label: emailAddress\n    __typename\n  }\n}"
 
 
 class GetCategoryQuery(BaseModel):
@@ -3101,7 +3577,7 @@ class SearchMessagesQuery(BaseModel):
     class Meta:
         """Meta class for SearchMessages"""
 
-        document = "query SearchMessages($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: messages(\n    filters: {search: $search, ids: $values}\n    pagination: {limit: $limit, offset: $offset}\n  ) {\n    value: id\n    label: subject\n    __typename\n  }\n}"
+        document = "query SearchMessages($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: messages(\n    filters: { search: $search, ids: $values }\n    pagination: { limit: $limit, offset: $offset }\n  ) {\n    value: id\n    label: subject\n    __typename\n  }\n}"
 
 
 class GetOutgoingMessageQuery(BaseModel):
@@ -3137,6 +3613,56 @@ class ListOutboxQuery(BaseModel):
         """Meta class for ListOutbox"""
 
         document = "fragment Address on Address {\n  name\n  address\n  __typename\n}\n\nfragment BigFileStore on BigFileStore {\n  id\n  path\n  bucket\n  key\n  sizeBytes\n  originalFileName\n  contentType\n  presignedUrl\n  __typename\n}\n\nfragment RefusedRecipient on RefusedRecipient {\n  address\n  code\n  message\n  __typename\n}\n\nfragment OutgoingMessage on OutgoingMessage {\n  id\n  status\n  subject\n  textBody\n  htmlBody\n  messageId\n  savedToSent\n  error\n  errorCode\n  createdAt\n  sentAt\n  account {\n    id\n    __typename\n  }\n  inReplyTo {\n    id\n    __typename\n  }\n  to {\n    ...Address\n    __typename\n  }\n  cc {\n    ...Address\n    __typename\n  }\n  bcc {\n    ...Address\n    __typename\n  }\n  refused {\n    ...RefusedRecipient\n    __typename\n  }\n  attachments {\n    ...BigFileStore\n    __typename\n  }\n  __typename\n}\n\nquery ListOutbox($filter: OutgoingMessageFilter, $pagination: OffsetPaginationInput) {\n  outbox(filters: $filter, pagination: $pagination) {\n    ...OutgoingMessage\n    __typename\n  }\n}"
+
+
+class GetMailProviderQuery(BaseModel):
+    """No documentation found for this operation."""
+
+    mail_provider: MailProvider = Field(alias="mailProvider")
+    "A provider by id."
+
+    class Arguments(BaseModel):
+        """Arguments for GetMailProvider"""
+
+        id: ID
+
+    class Meta:
+        """Meta class for GetMailProvider"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}\n\nquery GetMailProvider($id: ID!) {\n  mailProvider(id: $id) {\n    ...MailProvider\n    __typename\n  }\n}"
+
+
+class ListMailProvidersQuery(BaseModel):
+    """No documentation found for this operation."""
+
+    mail_providers: tuple[MailProvider, ...] = Field(alias="mailProviders")
+    "The providers the organization set up; every mailbox is linked through one."
+
+    class Arguments(BaseModel):
+        """Arguments for ListMailProviders"""
+
+        filter: MailProviderFilter | None = Field(default=None)
+        pagination: OffsetPaginationInput | None = Field(default=None)
+
+    class Meta:
+        """Meta class for ListMailProviders"""
+
+        document = "fragment MailProviderRef on MailProvider {\n  id\n  name\n  kind\n  __typename\n}\n\nfragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nfragment ServerSettings on ServerSettings {\n  host\n  port\n  security\n  __typename\n}\n\nfragment MailProvider on MailProvider {\n  ...MailProviderRef\n  enabled\n  capabilities\n  mailboxCount\n  createdAt\n  updatedAt\n  kindInfo {\n    ...ProviderKind\n    __typename\n  }\n  oauth {\n    clientId\n    redirectUrls\n    tenant\n    hasSecret\n    __typename\n  }\n  server {\n    fixed\n    protocol\n    incoming {\n      ...ServerSettings\n      __typename\n    }\n    smtp {\n      ...ServerSettings\n      __typename\n    }\n    saveSentCopy\n    __typename\n  }\n  __typename\n}\n\nquery ListMailProviders($filter: MailProviderFilter, $pagination: OffsetPaginationInput) {\n  mailProviders(filters: $filter, pagination: $pagination) {\n    ...MailProvider\n    __typename\n  }\n}"
+
+
+class ProviderKindsQuery(BaseModel):
+    """No documentation found for this operation."""
+
+    provider_kinds: tuple[ProviderKind, ...] = Field(alias="providerKinds")
+    "The kinds of provider this server can run, each with its capabilities."
+
+    class Arguments(BaseModel):
+        """Arguments for ProviderKinds"""
+
+    class Meta:
+        """Meta class for ProviderKinds"""
+
+        document = "fragment ProviderKind on ProviderKind {\n  kind\n  label\n  description\n  authMethod\n  capabilities {\n    capability\n    label\n    description\n    __typename\n  }\n  __typename\n}\n\nquery ProviderKinds {\n  providerKinds {\n    ...ProviderKind\n    __typename\n  }\n}"
 
 
 class GetTaskQuery(BaseModel):
@@ -3256,7 +3782,7 @@ class SearchTasksQuery(BaseModel):
     class Meta:
         """Meta class for SearchTasks"""
 
-        document = "query SearchTasks($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: tasks(\n    filters: {search: $search, ids: $values}\n    pagination: {limit: $limit, offset: $offset}\n  ) {\n    value: id\n    label: title\n    __typename\n  }\n}"
+        document = "query SearchTasks($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: tasks(\n    filters: { search: $search, ids: $values }\n    pagination: { limit: $limit, offset: $offset }\n  ) {\n    value: id\n    label: title\n    __typename\n  }\n}"
 
 
 class SearchTaskListsQueryOptions(BaseModel):
@@ -3288,7 +3814,7 @@ class SearchTaskListsQuery(BaseModel):
     class Meta:
         """Meta class for SearchTaskLists"""
 
-        document = "query SearchTaskLists($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: taskLists(\n    filters: {search: $search, ids: $values}\n    pagination: {limit: $limit, offset: $offset}\n  ) {\n    value: id\n    label: name\n    __typename\n  }\n}"
+        document = "query SearchTaskLists($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: taskLists(\n    filters: { search: $search, ids: $values }\n    pagination: { limit: $limit, offset: $offset }\n  ) {\n    value: id\n    label: name\n    __typename\n  }\n}"
 
 
 class GetThreadQuery(BaseModel):
@@ -3373,7 +3899,7 @@ class SearchThreadsQuery(BaseModel):
     class Meta:
         """Meta class for SearchThreads"""
 
-        document = "query SearchThreads($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: threads(\n    filters: {search: $search, ids: $values}\n    pagination: {limit: $limit, offset: $offset}\n  ) {\n    value: id\n    label: subject\n    __typename\n  }\n}"
+        document = "query SearchThreads($search: String, $values: [ID!], $limit: Int = 10, $offset: Int = 0) {\n  options: threads(\n    filters: { search: $search, ids: $values }\n    pagination: { limit: $limit, offset: $offset }\n  ) {\n    value: id\n    label: subject\n    __typename\n  }\n}"
 
 
 class WatchMailboxSyncsSubscription(BaseModel):
@@ -3398,6 +3924,7 @@ class KuvertApi:
 
     async def acreate_mail_account(
         self,
+        provider: IDCoercible,
         email_address: str,
         password: str,
         name: str | None | UnsetType = UNSET,
@@ -3415,9 +3942,10 @@ class KuvertApi:
     ) -> DetailMailAccount:
         """CreateMailAccount
 
-        Link a mailbox with a username and (app) password; the login is tested first.
+        Link a mailbox with a username and (app) password through an IMAP provider; the login is tested first.
 
         Args:
+            provider (ID): No description
             email_address (str): No description
             password (str): No description
             name (str | None, optional): No description.
@@ -3437,6 +3965,7 @@ class KuvertApi:
             DetailMailAccount
         """
         variables: dict[str, builtins.object] = {}
+        variables["provider"] = provider
         variables["emailAddress"] = email_address
         variables["password"] = password
         if name is not UNSET:
@@ -3467,6 +3996,7 @@ class KuvertApi:
 
     def create_mail_account(
         self,
+        provider: IDCoercible,
         email_address: str,
         password: str,
         name: str | None | UnsetType = UNSET,
@@ -3484,9 +4014,10 @@ class KuvertApi:
     ) -> DetailMailAccount:
         """CreateMailAccount
 
-        Link a mailbox with a username and (app) password; the login is tested first.
+        Link a mailbox with a username and (app) password through an IMAP provider; the login is tested first.
 
         Args:
+            provider (ID): No description
             email_address (str): No description
             password (str): No description
             name (str | None, optional): No description.
@@ -3506,6 +4037,7 @@ class KuvertApi:
             DetailMailAccount
         """
         variables: dict[str, builtins.object] = {}
+        variables["provider"] = provider
         variables["emailAddress"] = email_address
         variables["password"] = password
         if name is not UNSET:
@@ -4616,7 +5148,7 @@ class KuvertApi:
 
     async def astart_o_auth_link(
         self,
-        provider: Provider,
+        provider: IDCoercible | None | UnsetType = UNSET,
         protocol: Protocol | None | UnsetType = UNSET,
         redirect_url: str | None | UnsetType = UNSET,
         name: str | None | UnsetType = UNSET,
@@ -4626,10 +5158,10 @@ class KuvertApi:
     ) -> AuthSession:
         """StartOAuthLink
 
-        Start linking (or re-linking) a mailbox through OAuth.
+        Start linking (or re-linking) a mailbox through a Gmail or Microsoft provider.
 
         Args:
-            provider (Provider): No description
+            provider (ID | None, optional): No description.
             protocol (Protocol | None, optional): No description.
             redirect_url (str | None, optional): No description.
             name (str | None, optional): No description.
@@ -4641,7 +5173,8 @@ class KuvertApi:
             AuthSession
         """
         variables: dict[str, builtins.object] = {}
-        variables["provider"] = provider
+        if provider is not UNSET:
+            variables["provider"] = provider
         if protocol is not UNSET:
             variables["protocol"] = protocol
         if redirect_url is not UNSET:
@@ -4658,7 +5191,7 @@ class KuvertApi:
 
     def start_o_auth_link(
         self,
-        provider: Provider,
+        provider: IDCoercible | None | UnsetType = UNSET,
         protocol: Protocol | None | UnsetType = UNSET,
         redirect_url: str | None | UnsetType = UNSET,
         name: str | None | UnsetType = UNSET,
@@ -4668,10 +5201,10 @@ class KuvertApi:
     ) -> AuthSession:
         """StartOAuthLink
 
-        Start linking (or re-linking) a mailbox through OAuth.
+        Start linking (or re-linking) a mailbox through a Gmail or Microsoft provider.
 
         Args:
-            provider (Provider): No description
+            provider (ID | None, optional): No description.
             protocol (Protocol | None, optional): No description.
             redirect_url (str | None, optional): No description.
             name (str | None, optional): No description.
@@ -4683,7 +5216,8 @@ class KuvertApi:
             AuthSession
         """
         variables: dict[str, builtins.object] = {}
-        variables["provider"] = provider
+        if provider is not UNSET:
+            variables["provider"] = provider
         if protocol is not UNSET:
             variables["protocol"] = protocol
         if redirect_url is not UNSET:
@@ -4698,60 +5232,82 @@ class KuvertApi:
             StartOAuthLinkMutation, variables, task=task
         ).start_o_auth_link
 
-    async def acomplete_o_auth_link(
-        self, code: str, state: str, task: TaskLike | None = None
-    ) -> DetailMailAccount:
-        """CompleteOAuthLink
+    async def acomplete_auth(
+        self,
+        state: str,
+        code: str | None | UnsetType = UNSET,
+        error: str | None | UnsetType = UNSET,
+        error_description: str | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> AuthSession:
+        """CompleteAuth
 
-        Finish an OAuth login with the redirect's code and state.
+        REDIRECT: finish with the code. POLL: advance one step; call until not PENDING.
 
         Args:
-            code: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text. (required)
             state: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text. (required)
+            code: REDIRECT: the `code` query parameter of the redirect. POLL: omitted.
+            error: REDIRECT: the provider's `error` / `error_description`, when it refused.
+            error_description: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
-            DetailMailAccount
+            AuthSession
         """
         variables: dict[str, builtins.object] = {}
         _input: dict[str, builtins.object] = {}
-        _input["code"] = code
         _input["state"] = state
+        if code is not UNSET:
+            _input["code"] = code
+        if error is not UNSET:
+            _input["error"] = error
+        if error_description is not UNSET:
+            _input["errorDescription"] = error_description
         variables["input"] = _input
         return (
-            await self.aexecute(CompleteOAuthLinkMutation, variables, task=task)
-        ).complete_o_auth_link
+            await self.aexecute(CompleteAuthMutation, variables, task=task)
+        ).complete_auth
 
-    def complete_o_auth_link(
-        self, code: str, state: str, task: TaskLike | None = None
-    ) -> DetailMailAccount:
-        """CompleteOAuthLink
+    def complete_auth(
+        self,
+        state: str,
+        code: str | None | UnsetType = UNSET,
+        error: str | None | UnsetType = UNSET,
+        error_description: str | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> AuthSession:
+        """CompleteAuth
 
-        Finish an OAuth login with the redirect's code and state.
+        REDIRECT: finish with the code. POLL: advance one step; call until not PENDING.
 
         Args:
-            code: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text. (required)
             state: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text. (required)
+            code: REDIRECT: the `code` query parameter of the redirect. POLL: omitted.
+            error: REDIRECT: the provider's `error` / `error_description`, when it refused.
+            error_description: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
-            DetailMailAccount
+            AuthSession
         """
         variables: dict[str, builtins.object] = {}
         _input: dict[str, builtins.object] = {}
-        _input["code"] = code
         _input["state"] = state
+        if code is not UNSET:
+            _input["code"] = code
+        if error is not UNSET:
+            _input["error"] = error
+        if error_description is not UNSET:
+            _input["errorDescription"] = error_description
         variables["input"] = _input
-        return self.execute(
-            CompleteOAuthLinkMutation, variables, task=task
-        ).complete_o_auth_link
+        return self.execute(CompleteAuthMutation, variables, task=task).complete_auth
 
-    async def aresume_o_auth_link(
+    async def aresume_auth(
         self, state: str, task: TaskLike | None = None
     ) -> AuthSession:
-        """ResumeOAuthLink
+        """ResumeAuth
 
-        The caller's pending OAuth login again.
+        The same login again (a fresh openUrl if the old one cannot be reused).
 
         Args:
             state (str): No description
@@ -4763,15 +5319,13 @@ class KuvertApi:
         variables: dict[str, builtins.object] = {}
         variables["state"] = state
         return (
-            await self.aexecute(ResumeOAuthLinkMutation, variables, task=task)
-        ).resume_o_auth_link
+            await self.aexecute(ResumeAuthMutation, variables, task=task)
+        ).resume_auth
 
-    def resume_o_auth_link(
-        self, state: str, task: TaskLike | None = None
-    ) -> AuthSession:
-        """ResumeOAuthLink
+    def resume_auth(self, state: str, task: TaskLike | None = None) -> AuthSession:
+        """ResumeAuth
 
-        The caller's pending OAuth login again.
+        The same login again (a fresh openUrl if the old one cannot be reused).
 
         Args:
             state (str): No description
@@ -4782,47 +5336,43 @@ class KuvertApi:
         """
         variables: dict[str, builtins.object] = {}
         variables["state"] = state
-        return self.execute(
-            ResumeOAuthLinkMutation, variables, task=task
-        ).resume_o_auth_link
+        return self.execute(ResumeAuthMutation, variables, task=task).resume_auth
 
-    async def acancel_o_auth_link(
+    async def acancel_auth(
         self, state: str, task: TaskLike | None = None
-    ) -> str:
-        """CancelOAuthLink
+    ) -> AuthSession:
+        """CancelAuth
 
-        Drop the caller's pending OAuth login.
+        Drop a login that will not be finished. Idempotent.
 
         Args:
             state (str): No description
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
-            str
+            AuthSession
         """
         variables: dict[str, builtins.object] = {}
         variables["state"] = state
         return (
-            await self.aexecute(CancelOAuthLinkMutation, variables, task=task)
-        ).cancel_o_auth_link
+            await self.aexecute(CancelAuthMutation, variables, task=task)
+        ).cancel_auth
 
-    def cancel_o_auth_link(self, state: str, task: TaskLike | None = None) -> str:
-        """CancelOAuthLink
+    def cancel_auth(self, state: str, task: TaskLike | None = None) -> AuthSession:
+        """CancelAuth
 
-        Drop the caller's pending OAuth login.
+        Drop a login that will not be finished. Idempotent.
 
         Args:
             state (str): No description
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
-            str
+            AuthSession
         """
         variables: dict[str, builtins.object] = {}
         variables["state"] = state
-        return self.execute(
-            CancelOAuthLinkMutation, variables, task=task
-        ).cancel_o_auth_link
+        return self.execute(CancelAuthMutation, variables, task=task).cancel_auth
 
     async def asend_message(
         self,
@@ -4929,6 +5479,500 @@ class KuvertApi:
         if attachments is not UNSET:
             variables["attachments"] = attachments
         return self.execute(SendMessageMutation, variables, task=task).send_message
+
+    async def acreate_server_provider(
+        self,
+        name: str,
+        protocol: Protocol | None | UnsetType = UNSET,
+        incoming: ServerInput | None | UnsetType = UNSET,
+        smtp: ServerInput | None | UnsetType = UNSET,
+        save_sent_copy: bool | None | UnsetType = UNSET,
+        capabilities: list[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """CreateServerProvider
+         A provider an admin sets up for the organization, through which its mailboxes are
+         linked: a server provider (IMAP/POP3 + SMTP, the servers fixed or left to each link)
+         or an OAuth client (Gmail, Microsoft).
+
+        Args:
+            name (str): No description
+            protocol (Protocol | None, optional): No description.
+            incoming (ServerInput | None, optional): No description.
+            smtp (ServerInput | None, optional): No description.
+            save_sent_copy (bool | None, optional): No description.
+            capabilities (list[ProviderCapability] | None, optional): No description.
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        variables["name"] = name
+        if protocol is not UNSET:
+            variables["protocol"] = protocol
+        if incoming is not UNSET:
+            variables["incoming"] = incoming
+        if smtp is not UNSET:
+            variables["smtp"] = smtp
+        if save_sent_copy is not UNSET:
+            variables["saveSentCopy"] = save_sent_copy
+        if capabilities is not UNSET:
+            variables["capabilities"] = capabilities
+        return (
+            await self.aexecute(CreateServerProviderMutation, variables, task=task)
+        ).create_server_provider
+
+    def create_server_provider(
+        self,
+        name: str,
+        protocol: Protocol | None | UnsetType = UNSET,
+        incoming: ServerInput | None | UnsetType = UNSET,
+        smtp: ServerInput | None | UnsetType = UNSET,
+        save_sent_copy: bool | None | UnsetType = UNSET,
+        capabilities: list[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """CreateServerProvider
+         A provider an admin sets up for the organization, through which its mailboxes are
+         linked: a server provider (IMAP/POP3 + SMTP, the servers fixed or left to each link)
+         or an OAuth client (Gmail, Microsoft).
+
+        Args:
+            name (str): No description
+            protocol (Protocol | None, optional): No description.
+            incoming (ServerInput | None, optional): No description.
+            smtp (ServerInput | None, optional): No description.
+            save_sent_copy (bool | None, optional): No description.
+            capabilities (list[ProviderCapability] | None, optional): No description.
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        variables["name"] = name
+        if protocol is not UNSET:
+            variables["protocol"] = protocol
+        if incoming is not UNSET:
+            variables["incoming"] = incoming
+        if smtp is not UNSET:
+            variables["smtp"] = smtp
+        if save_sent_copy is not UNSET:
+            variables["saveSentCopy"] = save_sent_copy
+        if capabilities is not UNSET:
+            variables["capabilities"] = capabilities
+        return self.execute(
+            CreateServerProviderMutation, variables, task=task
+        ).create_server_provider
+
+    async def acreate_o_auth_provider(
+        self,
+        kind: Provider,
+        name: str,
+        client_id: str,
+        redirect_urls: Iterable[str],
+        client_secret: str | None | UnsetType = UNSET,
+        tenant: str | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """CreateOAuthProvider
+
+        Admins: set up a Gmail or Microsoft OAuth client as a provider.
+
+        Args:
+            kind: GMAIL or MICROSOFT.
+            name: What to call it, unique in the organization.
+            client_id: The OAuth client id.
+            client_secret: The client secret (a public client with PKCE has none). Stored encrypted and never returned.
+            redirect_urls: The redirect URLs registered for the client, the default first.
+            tenant: Microsoft: the Entra tenant (id or domain); `common` (any account) by default.
+            capabilities: What to switch on; everything the kind can do by default (see `providerKinds`).
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["kind"] = kind
+        _input["name"] = name
+        _input["clientId"] = client_id
+        if client_secret is not UNSET:
+            _input["clientSecret"] = client_secret
+        _input["redirectUrls"] = redirect_urls
+        if tenant is not UNSET:
+            _input["tenant"] = tenant
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return (
+            await self.aexecute(CreateOAuthProviderMutation, variables, task=task)
+        ).create_o_auth_provider
+
+    def create_o_auth_provider(
+        self,
+        kind: Provider,
+        name: str,
+        client_id: str,
+        redirect_urls: Iterable[str],
+        client_secret: str | None | UnsetType = UNSET,
+        tenant: str | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """CreateOAuthProvider
+
+        Admins: set up a Gmail or Microsoft OAuth client as a provider.
+
+        Args:
+            kind: GMAIL or MICROSOFT.
+            name: What to call it, unique in the organization.
+            client_id: The OAuth client id.
+            client_secret: The client secret (a public client with PKCE has none). Stored encrypted and never returned.
+            redirect_urls: The redirect URLs registered for the client, the default first.
+            tenant: Microsoft: the Entra tenant (id or domain); `common` (any account) by default.
+            capabilities: What to switch on; everything the kind can do by default (see `providerKinds`).
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["kind"] = kind
+        _input["name"] = name
+        _input["clientId"] = client_id
+        if client_secret is not UNSET:
+            _input["clientSecret"] = client_secret
+        _input["redirectUrls"] = redirect_urls
+        if tenant is not UNSET:
+            _input["tenant"] = tenant
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return self.execute(
+            CreateOAuthProviderMutation, variables, task=task
+        ).create_o_auth_provider
+
+    async def aupdate_server_provider(
+        self,
+        id: IDCoercible,
+        name: str | None | UnsetType = UNSET,
+        enabled: bool | None | UnsetType = UNSET,
+        protocol: Protocol | None | UnsetType = UNSET,
+        incoming: ServerInput | None | UnsetType = UNSET,
+        smtp: ServerInput | None | UnsetType = UNSET,
+        save_sent_copy: bool | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """UpdateServerProvider
+
+        Admins: change an IMAP provider; its mailboxes follow new fixed servers.
+
+        Args:
+            id: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            name: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            enabled: The `Boolean` scalar type represents `true` or `false`.
+            protocol: Protocol
+            incoming: Where a server is reached.
+            smtp: Where a server is reached.
+            save_sent_copy: The `Boolean` scalar type represents `true` or `false`.
+            capabilities: ProviderCapability (required) (list)
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["id"] = id
+        if name is not UNSET:
+            _input["name"] = name
+        if enabled is not UNSET:
+            _input["enabled"] = enabled
+        if protocol is not UNSET:
+            _input["protocol"] = protocol
+        if incoming is not UNSET:
+            _input["incoming"] = incoming
+        if smtp is not UNSET:
+            _input["smtp"] = smtp
+        if save_sent_copy is not UNSET:
+            _input["saveSentCopy"] = save_sent_copy
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return (
+            await self.aexecute(UpdateServerProviderMutation, variables, task=task)
+        ).update_server_provider
+
+    def update_server_provider(
+        self,
+        id: IDCoercible,
+        name: str | None | UnsetType = UNSET,
+        enabled: bool | None | UnsetType = UNSET,
+        protocol: Protocol | None | UnsetType = UNSET,
+        incoming: ServerInput | None | UnsetType = UNSET,
+        smtp: ServerInput | None | UnsetType = UNSET,
+        save_sent_copy: bool | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """UpdateServerProvider
+
+        Admins: change an IMAP provider; its mailboxes follow new fixed servers.
+
+        Args:
+            id: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            name: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            enabled: The `Boolean` scalar type represents `true` or `false`.
+            protocol: Protocol
+            incoming: Where a server is reached.
+            smtp: Where a server is reached.
+            save_sent_copy: The `Boolean` scalar type represents `true` or `false`.
+            capabilities: ProviderCapability (required) (list)
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["id"] = id
+        if name is not UNSET:
+            _input["name"] = name
+        if enabled is not UNSET:
+            _input["enabled"] = enabled
+        if protocol is not UNSET:
+            _input["protocol"] = protocol
+        if incoming is not UNSET:
+            _input["incoming"] = incoming
+        if smtp is not UNSET:
+            _input["smtp"] = smtp
+        if save_sent_copy is not UNSET:
+            _input["saveSentCopy"] = save_sent_copy
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return self.execute(
+            UpdateServerProviderMutation, variables, task=task
+        ).update_server_provider
+
+    async def aupdate_o_auth_provider(
+        self,
+        id: IDCoercible,
+        name: str | None | UnsetType = UNSET,
+        enabled: bool | None | UnsetType = UNSET,
+        client_id: str | None | UnsetType = UNSET,
+        client_secret: str | None | UnsetType = UNSET,
+        redirect_urls: Iterable[str] | None | UnsetType = UNSET,
+        tenant: str | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """UpdateOAuthProvider
+
+        Admins: change a Gmail or Microsoft provider; an empty secret keeps the stored one.
+
+        Args:
+            id: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            name: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            enabled: The `Boolean` scalar type represents `true` or `false`.
+            client_id: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            client_secret: A new client secret. Omitted or empty: the stored one is kept.
+            redirect_urls: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text. (required) (list)
+            tenant: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            capabilities: ProviderCapability (required) (list)
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["id"] = id
+        if name is not UNSET:
+            _input["name"] = name
+        if enabled is not UNSET:
+            _input["enabled"] = enabled
+        if client_id is not UNSET:
+            _input["clientId"] = client_id
+        if client_secret is not UNSET:
+            _input["clientSecret"] = client_secret
+        if redirect_urls is not UNSET:
+            _input["redirectUrls"] = redirect_urls
+        if tenant is not UNSET:
+            _input["tenant"] = tenant
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return (
+            await self.aexecute(UpdateOAuthProviderMutation, variables, task=task)
+        ).update_o_auth_provider
+
+    def update_o_auth_provider(
+        self,
+        id: IDCoercible,
+        name: str | None | UnsetType = UNSET,
+        enabled: bool | None | UnsetType = UNSET,
+        client_id: str | None | UnsetType = UNSET,
+        client_secret: str | None | UnsetType = UNSET,
+        redirect_urls: Iterable[str] | None | UnsetType = UNSET,
+        tenant: str | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """UpdateOAuthProvider
+
+        Admins: change a Gmail or Microsoft provider; an empty secret keeps the stored one.
+
+        Args:
+            id: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            name: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            enabled: The `Boolean` scalar type represents `true` or `false`.
+            client_id: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            client_secret: A new client secret. Omitted or empty: the stored one is kept.
+            redirect_urls: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text. (required) (list)
+            tenant: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            capabilities: ProviderCapability (required) (list)
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["id"] = id
+        if name is not UNSET:
+            _input["name"] = name
+        if enabled is not UNSET:
+            _input["enabled"] = enabled
+        if client_id is not UNSET:
+            _input["clientId"] = client_id
+        if client_secret is not UNSET:
+            _input["clientSecret"] = client_secret
+        if redirect_urls is not UNSET:
+            _input["redirectUrls"] = redirect_urls
+        if tenant is not UNSET:
+            _input["tenant"] = tenant
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return self.execute(
+            UpdateOAuthProviderMutation, variables, task=task
+        ).update_o_auth_provider
+
+    async def aupdate_provider(
+        self,
+        id: IDCoercible,
+        name: str | None | UnsetType = UNSET,
+        enabled: bool | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """UpdateProvider
+
+        Admins: rename, enable or disable any provider, or change its capabilities.
+
+        Args:
+            id: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            name: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            enabled: The `Boolean` scalar type represents `true` or `false`.
+            capabilities: ProviderCapability (required) (list)
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["id"] = id
+        if name is not UNSET:
+            _input["name"] = name
+        if enabled is not UNSET:
+            _input["enabled"] = enabled
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return (
+            await self.aexecute(UpdateProviderMutation, variables, task=task)
+        ).update_provider
+
+    def update_provider(
+        self,
+        id: IDCoercible,
+        name: str | None | UnsetType = UNSET,
+        enabled: bool | None | UnsetType = UNSET,
+        capabilities: Iterable[ProviderCapability] | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> MailProvider:
+        """UpdateProvider
+
+        Admins: rename, enable or disable any provider, or change its capabilities.
+
+        Args:
+            id: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            name: The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.
+            enabled: The `Boolean` scalar type represents `true` or `false`.
+            capabilities: ProviderCapability (required) (list)
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        _input: dict[str, builtins.object] = {}
+        _input["id"] = id
+        if name is not UNSET:
+            _input["name"] = name
+        if enabled is not UNSET:
+            _input["enabled"] = enabled
+        if capabilities is not UNSET:
+            _input["capabilities"] = capabilities
+        variables["input"] = _input
+        return self.execute(
+            UpdateProviderMutation, variables, task=task
+        ).update_provider
+
+    async def adelete_provider(
+        self, id: IDCoercible, task: TaskLike | None = None
+    ) -> ID:
+        """DeleteProvider
+
+        Admins: remove a provider no mailbox goes through.
+
+        Args:
+            id (ID): No description
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            ID
+        """
+        variables: dict[str, builtins.object] = {}
+        variables["id"] = id
+        return (
+            await self.aexecute(DeleteProviderMutation, variables, task=task)
+        ).delete_provider
+
+    def delete_provider(self, id: IDCoercible, task: TaskLike | None = None) -> ID:
+        """DeleteProvider
+
+        Admins: remove a provider no mailbox goes through.
+
+        Args:
+            id (ID): No description
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            ID
+        """
+        variables: dict[str, builtins.object] = {}
+        variables["id"] = id
+        return self.execute(
+            DeleteProviderMutation, variables, task=task
+        ).delete_provider
 
     async def acreate_task_list(
         self,
@@ -5900,37 +6944,41 @@ class KuvertApi:
             variables["address"] = address
         return self.execute(MailPresetsQuery, variables, task=task).mail_presets
 
-    async def ao_auth_providers(
-        self, task: TaskLike | None = None
-    ) -> tuple[Provider, ...]:
-        """OAuthProviders
+    async def aget_auth_session(
+        self, state: str, task: TaskLike | None = None
+    ) -> AuthSession:
+        """GetAuthSession
 
-        Providers this deployment can link through OAuth.
+        Where a login is. No side effect.
 
         Args:
+            state (str): No description
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
-            list[Provider]
+            AuthSession
         """
         variables: dict[str, builtins.object] = {}
+        variables["state"] = state
         return (
-            await self.aexecute(OAuthProvidersQuery, variables, task=task)
-        ).oauth_providers
+            await self.aexecute(GetAuthSessionQuery, variables, task=task)
+        ).auth_session
 
-    def o_auth_providers(self, task: TaskLike | None = None) -> tuple[Provider, ...]:
-        """OAuthProviders
+    def get_auth_session(self, state: str, task: TaskLike | None = None) -> AuthSession:
+        """GetAuthSession
 
-        Providers this deployment can link through OAuth.
+        Where a login is. No side effect.
 
         Args:
+            state (str): No description
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
-            list[Provider]
+            AuthSession
         """
         variables: dict[str, builtins.object] = {}
-        return self.execute(OAuthProvidersQuery, variables, task=task).oauth_providers
+        variables["state"] = state
+        return self.execute(GetAuthSessionQuery, variables, task=task).auth_session
 
     async def asearch_mail_accounts(
         self,
@@ -6568,6 +7616,128 @@ class KuvertApi:
             variables["pagination"] = pagination
         return self.execute(ListOutboxQuery, variables, task=task).outbox
 
+    async def aget_mail_provider(
+        self, id: IDCoercible, task: TaskLike | None = None
+    ) -> MailProvider:
+        """GetMailProvider
+
+        A provider by id.
+
+        Args:
+            id (ID): No description
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        variables["id"] = id
+        return (
+            await self.aexecute(GetMailProviderQuery, variables, task=task)
+        ).mail_provider
+
+    def get_mail_provider(
+        self, id: IDCoercible, task: TaskLike | None = None
+    ) -> MailProvider:
+        """GetMailProvider
+
+        A provider by id.
+
+        Args:
+            id (ID): No description
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            MailProvider
+        """
+        variables: dict[str, builtins.object] = {}
+        variables["id"] = id
+        return self.execute(GetMailProviderQuery, variables, task=task).mail_provider
+
+    async def alist_mail_providers(
+        self,
+        filter: MailProviderFilter | None | UnsetType = UNSET,
+        pagination: OffsetPaginationInput | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> tuple[MailProvider, ...]:
+        """ListMailProviders
+
+        The providers the organization set up; every mailbox is linked through one.
+
+        Args:
+            filter (MailProviderFilter | None, optional): No description.
+            pagination (OffsetPaginationInput | None, optional): No description.
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            list[MailProvider]
+        """
+        variables: dict[str, builtins.object] = {}
+        if filter is not UNSET:
+            variables["filter"] = filter
+        if pagination is not UNSET:
+            variables["pagination"] = pagination
+        return (
+            await self.aexecute(ListMailProvidersQuery, variables, task=task)
+        ).mail_providers
+
+    def list_mail_providers(
+        self,
+        filter: MailProviderFilter | None | UnsetType = UNSET,
+        pagination: OffsetPaginationInput | None | UnsetType = UNSET,
+        task: TaskLike | None = None,
+    ) -> tuple[MailProvider, ...]:
+        """ListMailProviders
+
+        The providers the organization set up; every mailbox is linked through one.
+
+        Args:
+            filter (MailProviderFilter | None, optional): No description.
+            pagination (OffsetPaginationInput | None, optional): No description.
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            list[MailProvider]
+        """
+        variables: dict[str, builtins.object] = {}
+        if filter is not UNSET:
+            variables["filter"] = filter
+        if pagination is not UNSET:
+            variables["pagination"] = pagination
+        return self.execute(ListMailProvidersQuery, variables, task=task).mail_providers
+
+    async def aprovider_kinds(
+        self, task: TaskLike | None = None
+    ) -> tuple[ProviderKind, ...]:
+        """ProviderKinds
+
+        The kinds of provider this server can run, each with its capabilities.
+
+        Args:
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            list[ProviderKind]
+        """
+        variables: dict[str, builtins.object] = {}
+        return (
+            await self.aexecute(ProviderKindsQuery, variables, task=task)
+        ).provider_kinds
+
+    def provider_kinds(self, task: TaskLike | None = None) -> tuple[ProviderKind, ...]:
+        """ProviderKinds
+
+        The kinds of provider this server can run, each with its capabilities.
+
+        Args:
+            task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
+
+        Returns:
+            list[ProviderKind]
+        """
+        variables: dict[str, builtins.object] = {}
+        return self.execute(ProviderKindsQuery, variables, task=task).provider_kinds
+
     async def aget_task(self, id: IDCoercible, task: TaskLike | None = None) -> Task:
         """GetTask
 
@@ -7163,6 +8333,7 @@ CategoryFilter.model_rebuild()
 MailAccountFilter.model_rebuild()
 MailChangeFilter.model_rebuild()
 MailFolderFilter.model_rebuild()
+MailProviderFilter.model_rebuild()
 MessageFilter.model_rebuild()
 OutgoingMessageFilter.model_rebuild()
 TaskFilter.model_rebuild()

@@ -1,0 +1,46 @@
+fragment MailProviderRef on MailProvider {
+  id
+  name
+  kind
+}
+
+fragment ProviderKind on ProviderKind {
+  kind
+  label
+  description
+  authMethod
+  capabilities {
+    capability
+    label
+    description
+  }
+}
+
+fragment MailProvider on MailProvider {
+  ...MailProviderRef
+  enabled
+  capabilities
+  mailboxCount
+  createdAt
+  updatedAt
+  kindInfo {
+    ...ProviderKind
+  }
+  oauth {
+    clientId
+    redirectUrls
+    tenant
+    hasSecret
+  }
+  server {
+    fixed
+    protocol
+    incoming {
+      ...ServerSettings
+    }
+    smtp {
+      ...ServerSettings
+    }
+    saveSentCopy
+  }
+}

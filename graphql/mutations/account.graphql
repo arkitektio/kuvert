@@ -1,4 +1,5 @@
 mutation CreateMailAccount(
+  $provider: ID!
   $emailAddress: String!
   $password: String!
   $name: String
@@ -13,7 +14,7 @@ mutation CreateMailAccount(
   $popLeaveOnServer: Boolean
   $visibility: Visibility
 ) {
-  createMailAccount(input: { emailAddress: $emailAddress, password: $password, name: $name, displayName: $displayName, protocol: $protocol, incoming: $incoming, smtp: $smtp, username: $username, smtpUsername: $smtpUsername, smtpPassword: $smtpPassword, saveSentCopy: $saveSentCopy, popLeaveOnServer: $popLeaveOnServer, visibility: $visibility }) {
+  createMailAccount(input: { provider: $provider, emailAddress: $emailAddress, password: $password, name: $name, displayName: $displayName, protocol: $protocol, incoming: $incoming, smtp: $smtp, username: $username, smtpUsername: $smtpUsername, smtpPassword: $smtpPassword, saveSentCopy: $saveSentCopy, popLeaveOnServer: $popLeaveOnServer, visibility: $visibility }) {
     ...DetailMailAccount
   }
 }

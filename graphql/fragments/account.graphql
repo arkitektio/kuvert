@@ -20,6 +20,9 @@ fragment MailAccount on MailAccount {
   unreadCount
   pendingChanges
   failedChanges
+  mailProvider {
+    ...MailProviderRef
+  }
 }
 
 fragment DetailMailAccount on MailAccount {
@@ -46,6 +49,9 @@ fragment DetailMailAccount on MailAccount {
   }
   folders {
     ...MailFolder
+  }
+  pendingAuth {
+    ...AuthSession
   }
 }
 
@@ -77,12 +83,19 @@ fragment ServerSettings on ServerSettings {
 
 fragment AuthSession on AuthSession {
   state
+  status
+  finish
   openUrl
   expiresAt
-  finish
   redirectUrl
-  provider
-  account {
-    ...MailAccount
+  interval
+  userCode
+  step
+  errorCode
+  errorMessage
+  result {
+    identifier
+    id
+    label
   }
 }

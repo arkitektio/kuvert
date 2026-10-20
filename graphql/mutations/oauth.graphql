@@ -1,5 +1,5 @@
 mutation StartOAuthLink(
-  $provider: Provider!
+  $provider: ID
   $protocol: Protocol
   $redirectUrl: String
   $name: String
@@ -11,18 +11,20 @@ mutation StartOAuthLink(
   }
 }
 
-mutation CompleteOAuthLink($input: CompleteOAuthLinkInput!) {
-  completeOAuthLink(input: $input) {
-    ...DetailMailAccount
-  }
-}
-
-mutation ResumeOAuthLink($state: String!) {
-  resumeOAuthLink(state: $state) {
+mutation CompleteAuth($input: CompleteAuthInput!) {
+  completeAuth(input: $input) {
     ...AuthSession
   }
 }
 
-mutation CancelOAuthLink($state: String!) {
-  cancelOAuthLink(state: $state)
+mutation ResumeAuth($state: String!) {
+  resumeAuth(state: $state) {
+    ...AuthSession
+  }
+}
+
+mutation CancelAuth($state: String!) {
+  cancelAuth(state: $state) {
+    ...AuthSession
+  }
 }

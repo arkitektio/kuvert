@@ -25,6 +25,8 @@ authentikate:
       iss: lok
       roles:
         - editor
+        # Sets the stack's mail provider up (providers are an admin's).
+        - admin
 redis:
   host: redis
   port: 6379

@@ -1,0 +1,43 @@
+# A provider an admin sets up for the organization, through which its mailboxes are
+# linked: a server provider (IMAP/POP3 + SMTP, the servers fixed or left to each link)
+# or an OAuth client (Gmail, Microsoft).
+mutation CreateServerProvider(
+  $name: String!
+  $protocol: Protocol
+  $incoming: ServerInput
+  $smtp: ServerInput
+  $saveSentCopy: Boolean
+  $capabilities: [ProviderCapability!]
+) {
+  createServerProvider(input: { name: $name, protocol: $protocol, incoming: $incoming, smtp: $smtp, saveSentCopy: $saveSentCopy, capabilities: $capabilities }) {
+    ...MailProvider
+  }
+}
+
+mutation CreateOAuthProvider($input: CreateOAuthProviderInput!) {
+  createOAuthProvider(input: $input) {
+    ...MailProvider
+  }
+}
+
+mutation UpdateServerProvider($input: UpdateServerProviderInput!) {
+  updateServerProvider(input: $input) {
+    ...MailProvider
+  }
+}
+
+mutation UpdateOAuthProvider($input: UpdateOAuthProviderInput!) {
+  updateOAuthProvider(input: $input) {
+    ...MailProvider
+  }
+}
+
+mutation UpdateProvider($input: UpdateProviderInput!) {
+  updateProvider(input: $input) {
+    ...MailProvider
+  }
+}
+
+mutation DeleteProvider($id: ID!) {
+  deleteProvider(id: $id)
+}
