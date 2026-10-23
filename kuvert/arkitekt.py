@@ -67,10 +67,12 @@ def kuvert(
                     left=AIOHttpLink(
                         endpoint_url=kuvert.to_http_path("graphql"),
                         proxy=kuvert.proxy,
+                        ssl_context=kuvert.ssl_context(),
                     ),
                     right=GraphQLWSLink(
                         ws_endpoint_url=kuvert.to_ws_path("graphql"),
                         proxy=kuvert.proxy,
+                        ssl_context=kuvert.ssl_context(),
                     ),
                     split=lambda o: o.node.operation != OperationType.SUBSCRIPTION,
                 ),
