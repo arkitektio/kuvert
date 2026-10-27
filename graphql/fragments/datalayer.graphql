@@ -6,7 +6,6 @@ fragment BigFileStore on BigFileStore {
   sizeBytes
   originalFileName
   contentType
-  presignedUrl
 }
 
 fragment BigFileUploadGrant on BigFileUploadGrant {
@@ -24,5 +23,4 @@ fragment BigFileUploadGrant on BigFileUploadGrant {
   originalFileName
   uploadFileName
   uploadContentType
-  uploadFormField
 }

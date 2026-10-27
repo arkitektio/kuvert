@@ -148,6 +148,11 @@ type BigFileStore @key(fields: "id", resolvable: true) {
   key: String!
 
   """
+  The byte budget the upload grant advertised for this store. Advertised, not enforced: a session policy bounds what a credential may write, never how much, so a store may exceed this
+  """
+  maxBytes: ByteCount
+
+  """
   How many bytes this store actually holds, measured when its upload was finished. Null while unfinished, or for stores written before this was recorded
   """
   sizeBytes: ByteCount
@@ -159,8 +164,7 @@ type BigFileStore @key(fields: "id", resolvable: true) {
   contentType: String
 
   """Get temporary S3 read credentials for the object."""
-  accessGrant(host: String = null): BigFileAccessGrant!
-  presignedUrl: String!
+  accessGrant: BigFileAccessGrant!
 }
 
 """Temporary S3 credentials for uploading a big file."""
@@ -179,7 +183,6 @@ type BigFileUploadGrant {
   originalFileName: String
   uploadFileName: String!
   uploadContentType: String
-  uploadFormField: String!
 }
 
 """
@@ -1343,6 +1346,11 @@ type Mutation {
   Finalize the caller's file upload after the client has written the object.
   """
   finishBigfileUpload(input: FinishBigFileUploadInput!): BigFileStore! @auth(any_role_of: ["admin", "editor", "bot"])
+
+  """
+  Reissue upload credentials for a bigfile upload still in flight, to the same key, so a write that outlives its credentials carries on. Only the uploader may, never for a finished store, and never past the upload's time limit
+  """
+  refreshBigfileUpload(input: RefreshUploadInput!): BigFileUploadGrant! @auth(any_role_of: ["admin", "editor", "bot"])
 }
 
 """
@@ -1383,7 +1391,9 @@ An organization (tenant). Every mailbox belongs to exactly one, and queries only
 """
 type Organization @key(fields: "id", resolvable: true) {
   id: ID!
-  slug: String!
+
+  """The organization across issuers and services: `<issuer>#<org>`."""
+  identifier: String!
 }
 
 """A message sent through a mailbox's SMTP server."""
@@ -1639,6 +1649,10 @@ input RecipientInput {
   name: String = null
 }
 
+input RefreshUploadInput {
+  storeId: String!
+}
+
 """A recipient the SMTP server refused."""
 type RefusedRecipient {
   address: String!
@@ -1648,10 +1662,8 @@ type RefusedRecipient {
 
 input RequestBigFileUploadInput {
   originalFileName: String!
-  fileSize: ByteCount = null
+  fileSize: ByteCount!
   contentType: String = null
-  host: String = null
-  port: Int = null
 }
 
 """
