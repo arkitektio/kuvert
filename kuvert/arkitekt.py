@@ -19,7 +19,6 @@ from arkitekt_spec.declare.widgets import SearchWidget
 
 from graphql import OperationType
 from kuvert.api.schema import (
-    SCOPES,
     DetailMailAccount,
     Message,
     OutgoingMessage,
@@ -48,9 +47,6 @@ registry = AppRegistry()
 @registry.service(
     schema=build_relative_path("api", "schema.graphql"),
     turms=build_relative_path("api", "project.json"),
-    # What the client's operations need at kuvert, as turms gathered it from the schema: every
-    # app using kuvert asks for it.
-    scopes=SCOPES,
 )
 def kuvert(
     kuvert: Annotated[
