@@ -7,10 +7,12 @@ old ``EXPANDERS``-versus-``STRUCTURES`` test existed to catch.
 
 import pytest
 
-pytest.importorskip("rekuest")
+# The integration is declared with arkitekt-spec and wired with fakts, which arkitekt brings.
+pytest.importorskip("arkitekt_spec")
+pytest.importorskip("fakts")
 
-from rekuest.app import AppRegistry
-from rekuest.structures.types import is_valid_identifier
+from arkitekt_spec.declare.app import AppRegistry  # noqa: E402
+from arkitekt_spec.declare.structures.types import is_valid_identifier  # noqa: E402
 
 from kuvert import arkitekt as declared
 

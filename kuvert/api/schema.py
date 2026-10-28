@@ -6134,6 +6134,7 @@ Returns:
         variables: dict[str, builtins.object] = {}
         for event in self.subscribe(WatchMailboxSyncsSubscription, variables, task=task):
             yield event.mailbox_syncs
+SCOPES: list[str] = ['kuvert_mailboxes', 'kuvert_providers', 'kuvert_read', 'kuvert_send', 'kuvert_write']
 CategoryFilter.model_rebuild()
 MailAccountFilter.model_rebuild()
 MailChangeFilter.model_rebuild()

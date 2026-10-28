@@ -1,5 +1,7 @@
 directive @auth(required_scopes: [String!], required_roles: [String!], required_org_roles: [String!], any_scope_of: [String!], any_role_of: [String!], any_org_role_of: [String!], allow_scoped: Boolean) on FIELD_DEFINITION
 
+directive @identified(by: String!) on OBJECT
+
 directive @oneOf on INPUT_OBJECT
 
 schema @link(url: "https://specs.apollo.dev/federation/v2.11", import: ["@key"]) {
@@ -907,7 +909,7 @@ type MailPreset {
 """
 A provider the organization's admins set up (an IMAP server, a Gmail or Microsoft OAuth client). Every mailbox is linked through one; credentials are never returned.
 """
-type MailProvider @key(fields: "id", resolvable: true) {
+type MailProvider @key(fields: "id", resolvable: true) @identified(by: "@kuvert/mailprovider") {
   id: ID!
 
   """
@@ -1021,7 +1023,7 @@ input MarkMessagesInput {
 """
 A message in a folder. A copy in another folder is another message with the same `messageId`.
 """
-type Message @key(fields: "id", resolvable: true) {
+type Message @key(fields: "id", resolvable: true) @identified(by: "@kuvert/message") {
   id: ID!
 
   """The mailbox."""
@@ -1195,162 +1197,162 @@ input MoveMessagesInput {
 
 type Mutation {
   """Admins: set up an IMAP provider, with fixed servers or open to any."""
-  createServerProvider(input: CreateServerProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+  createServerProvider(input: CreateServerProviderInput!): MailProvider! @auth(required_scopes: ["kuvert_providers"], any_role_of: ["kuvert_admin"])
 
   """
   Admins: change an IMAP provider; its mailboxes follow new fixed servers.
   """
-  updateServerProvider(input: UpdateServerProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+  updateServerProvider(input: UpdateServerProviderInput!): MailProvider! @auth(required_scopes: ["kuvert_providers"], any_role_of: ["kuvert_admin"])
 
   """Admins: set up a Gmail or Microsoft OAuth client as a provider."""
-  createOAuthProvider(input: CreateOAuthProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+  createOAuthProvider(input: CreateOAuthProviderInput!): MailProvider! @auth(required_scopes: ["kuvert_providers"], any_role_of: ["kuvert_admin"])
 
   """
   Admins: change a Gmail or Microsoft provider; an empty secret keeps the stored one.
   """
-  updateOAuthProvider(input: UpdateOAuthProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+  updateOAuthProvider(input: UpdateOAuthProviderInput!): MailProvider! @auth(required_scopes: ["kuvert_providers"], any_role_of: ["kuvert_admin"])
 
   """
   Admins: rename, enable or disable any provider, or change its capabilities.
   """
-  updateProvider(input: UpdateProviderInput!): MailProvider! @auth(required_org_roles: ["admin"])
+  updateProvider(input: UpdateProviderInput!): MailProvider! @auth(required_scopes: ["kuvert_providers"], any_role_of: ["kuvert_admin"])
 
   """Admins: remove a provider no mailbox goes through."""
-  deleteProvider(id: ID!): ID! @auth(required_org_roles: ["admin"])
+  deleteProvider(id: ID!): ID! @auth(required_scopes: ["kuvert_providers"], any_role_of: ["kuvert_admin"])
 
   """
   Link a mailbox with a username and (app) password through an IMAP provider; the login is tested first.
   """
-  createMailAccount(input: CreateMailAccountInput!): MailAccount! @auth
+  createMailAccount(input: CreateMailAccountInput!): MailAccount! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """
   Change a mailbox (owner only); new servers or credentials are tested first.
   """
-  updateMailAccount(input: UpdateMailAccountInput!): MailAccount! @auth
+  updateMailAccount(input: UpdateMailAccountInput!): MailAccount! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """Log in to a mailbox's servers now."""
-  testMailAccount(id: ID!): MailAccount! @auth
+  testMailAccount(id: ID!): MailAccount! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """Unlink a mailbox (owner only). Mail on the server is untouched."""
-  deleteMailAccount(id: ID!): ID! @auth
+  deleteMailAccount(id: ID!): ID! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """Set who sees a mailbox (owner only)."""
-  shareMailAccount(input: ShareMailAccountInput!): MailAccount! @auth
+  shareMailAccount(input: ShareMailAccountInput!): MailAccount! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """Turn syncing a folder on or off."""
-  updateMailFolder(input: UpdateMailFolderInput!): MailFolder! @auth
+  updateMailFolder(input: UpdateMailFolderInput!): MailFolder! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """Sync a mailbox now."""
-  syncMailAccount(id: ID!, folders: [ID!] = null): SyncResult! @auth
+  syncMailAccount(id: ID!, folders: [ID!] = null): SyncResult! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """
   Start linking (or re-linking) a mailbox through a Gmail or Microsoft provider.
   """
-  startOAuthLink(input: StartOAuthLinkInput!): AuthSession! @auth
+  startOAuthLink(input: StartOAuthLinkInput!): AuthSession! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """
   REDIRECT: finish with the code. POLL: advance one step; call until not PENDING.
   """
-  completeAuth(input: CompleteAuthInput!): AuthSession! @auth
+  completeAuth(input: CompleteAuthInput!): AuthSession! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """
   The same login again (a fresh openUrl if the old one cannot be reused).
   """
-  resumeAuth(state: String!): AuthSession! @auth
+  resumeAuth(state: String!): AuthSession! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """Drop a login that will not be finished. Idempotent."""
-  cancelAuth(state: String!): AuthSession! @auth
+  cancelAuth(state: String!): AuthSession! @auth(required_scopes: ["kuvert_mailboxes"], any_role_of: ["kuvert_editor"])
 
   """Add and remove flags of messages."""
-  setMessageFlags(input: SetMessageFlagsInput!): [Message!]! @auth
+  setMessageFlags(input: SetMessageFlagsInput!): [Message!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Mark messages read or unread."""
-  markMessagesRead(input: MarkMessagesInput!): [Message!]! @auth
+  markMessagesRead(input: MarkMessagesInput!): [Message!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Move messages to another folder of their mailbox."""
-  moveMessages(input: MoveMessagesInput!): [Message!]! @auth
+  moveMessages(input: MoveMessagesInput!): [Message!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Delete messages (into Trash, or for good)."""
-  deleteMessages(input: DeleteMessagesInput!): DeleteResult! @auth
+  deleteMessages(input: DeleteMessagesInput!): DeleteResult! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Put messages into categories and take them out."""
-  categorizeMessages(input: CategorizeMessagesInput!): [Message!]! @auth
+  categorizeMessages(input: CategorizeMessagesInput!): [Message!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Take back changes that have not reached the server."""
-  undoMailChanges(input: UndoMailChangesInput!): [Message!]! @auth
+  undoMailChanges(input: UndoMailChangesInput!): [Message!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """
   Drop local-only and queued flag changes of messages: back to what the server has.
   """
-  revertMessagesToServer(messages: [ID!]!): [Message!]! @auth
+  revertMessagesToServer(messages: [ID!]!): [Message!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Queue failed changes again."""
-  retryMailChanges(changes: [ID!]!): [MailChange!]! @auth
+  retryMailChanges(changes: [ID!]!): [MailChange!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Push a mailbox's due changes now."""
-  pushMailChanges(account: ID!): PushResult! @auth
+  pushMailChanges(account: ID!): PushResult! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Create a category of a mailbox."""
-  createCategory(input: CreateCategoryInput!): Category! @auth
+  createCategory(input: CreateCategoryInput!): Category! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Change a category."""
-  updateCategory(input: UpdateCategoryInput!): Category! @auth
+  updateCategory(input: UpdateCategoryInput!): Category! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Delete a category."""
-  deleteCategory(id: ID!, removeKeywords: Boolean! = false): ID! @auth
+  deleteCategory(id: ID!, removeKeywords: Boolean! = false): ID! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Create a task list."""
-  createTaskList(input: CreateTaskListInput!): TaskList! @auth
+  createTaskList(input: CreateTaskListInput!): TaskList! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Rename, recolor or move a task list."""
-  updateTaskList(input: UpdateTaskListInput!): TaskList! @auth
+  updateTaskList(input: UpdateTaskListInput!): TaskList! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Delete a task list; its tasks stay, on no list."""
-  deleteTaskList(id: ID!): ID! @auth
+  deleteTaskList(id: ID!): ID! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Create a task, optionally with conversations."""
-  createTask(input: CreateTaskInput!): Task! @auth
+  createTask(input: CreateTaskInput!): Task! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """
   Create or update the caller's task with this externalKey, and add conversations to it.
   """
-  upsertTask(input: UpsertTaskInput!): Task! @auth
+  upsertTask(input: UpsertTaskInput!): Task! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Change a task."""
-  updateTask(input: UpdateTaskInput!): Task! @auth
+  updateTask(input: UpdateTaskInput!): Task! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Delete a task."""
-  deleteTask(id: ID!): ID! @auth
+  deleteTask(id: ID!): ID! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Mark tasks OPEN, DONE or DISMISSED."""
-  setTaskStatus(input: SetTaskStatusInput!): [Task!]! @auth
+  setTaskStatus(input: SetTaskStatusInput!): [Task!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Snooze tasks until a time (null wakes them)."""
-  snoozeTasks(input: SnoozeTasksInput!): [Task!]! @auth
+  snoozeTasks(input: SnoozeTasksInput!): [Task!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Put conversations into a task."""
-  linkThreads(input: LinkThreadsInput!): [TaskThread!]! @auth
+  linkThreads(input: LinkThreadsInput!): [TaskThread!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Take conversations out of a task."""
-  unlinkThreads(input: UnlinkThreadsInput!): Task! @auth
+  unlinkThreads(input: UnlinkThreadsInput!): Task! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Send a message through a mailbox's SMTP server."""
-  sendMessage(input: SendMessageInput!): OutgoingMessage! @auth
+  sendMessage(input: SendMessageInput!): OutgoingMessage! @auth(required_scopes: ["kuvert_send"], any_role_of: ["kuvert_editor"])
 
   """
   Request temporary S3 credentials to upload one file (an attachment to send).
   """
-  requestBigfileUpload(input: RequestBigFileUploadInput!): BigFileUploadGrant! @auth(any_role_of: ["admin", "editor", "bot"])
+  requestBigfileUpload(input: RequestBigFileUploadInput!): BigFileUploadGrant! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """
   Finalize the caller's file upload after the client has written the object.
   """
-  finishBigfileUpload(input: FinishBigFileUploadInput!): BigFileStore! @auth(any_role_of: ["admin", "editor", "bot"])
+  finishBigfileUpload(input: FinishBigFileUploadInput!): BigFileStore! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """
   Reissue upload credentials for a bigfile upload still in flight, to the same key, so a write that outlives its credentials carries on. Only the uploader may, never for a finished store, and never past the upload's time limit
   """
-  refreshBigfileUpload(input: RefreshUploadInput!): BigFileUploadGrant! @auth(any_role_of: ["admin", "editor", "bot"])
+  refreshBigfileUpload(input: RefreshUploadInput!): BigFileUploadGrant! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 }
 
 """
@@ -1397,7 +1399,7 @@ type Organization @key(fields: "id", resolvable: true) {
 }
 
 """A message sent through a mailbox's SMTP server."""
-type OutgoingMessage @key(fields: "id", resolvable: true) {
+type OutgoingMessage @key(fields: "id", resolvable: true) @identified(by: "@kuvert/outgoingmessage") {
   id: ID!
 
   """The mailbox it is sent from."""
@@ -1556,91 +1558,91 @@ type Query {
   """
   The providers the organization set up; every mailbox is linked through one.
   """
-  mailProviders(filters: MailProviderFilter, pagination: OffsetPaginationInput): [MailProvider!]! @auth
+  mailProviders(filters: MailProviderFilter, pagination: OffsetPaginationInput): [MailProvider!]! @auth(required_scopes: ["kuvert_read"])
 
   """A provider by id."""
-  mailProvider(id: ID!): MailProvider! @auth
+  mailProvider(id: ID!): MailProvider! @auth(required_scopes: ["kuvert_read"])
 
   """The kinds of provider this server can run, each with its capabilities."""
-  providerKinds: [ProviderKind!]! @auth
+  providerKinds: [ProviderKind!]! @auth(required_scopes: ["kuvert_read"])
 
   """
   The mailboxes the caller sees: their own, shared with them, and the organization's.
   """
-  mailAccounts(filters: MailAccountFilter, pagination: OffsetPaginationInput): [MailAccount!]! @auth
+  mailAccounts(filters: MailAccountFilter, pagination: OffsetPaginationInput): [MailAccount!]! @auth(required_scopes: ["kuvert_read"])
 
   """A mailbox by id."""
-  mailAccount(id: ID!): MailAccount! @auth
+  mailAccount(id: ID!): MailAccount! @auth(required_scopes: ["kuvert_read"])
 
   """Folders of the visible mailboxes (filter by `account`)."""
-  mailFolders(filters: MailFolderFilter, pagination: OffsetPaginationInput): [MailFolder!]! @auth
+  mailFolders(filters: MailFolderFilter, pagination: OffsetPaginationInput): [MailFolder!]! @auth(required_scopes: ["kuvert_read"])
 
   """A folder by id."""
-  mailFolder(id: ID!): MailFolder! @auth
+  mailFolder(id: ID!): MailFolder! @auth(required_scopes: ["kuvert_read"])
 
   """
   Messages of the visible mailboxes (paginated, filterable — `search` also matches by meaning — and orderable).
   """
-  messages(filters: MessageFilter, ordering: [MessageOrder!]! = [], pagination: OffsetPaginationInput): [Message!]! @auth
+  messages(filters: MessageFilter, ordering: [MessageOrder!]! = [], pagination: OffsetPaginationInput): [Message!]! @auth(required_scopes: ["kuvert_read"])
 
   """A message by id."""
-  message(id: ID!): Message! @auth
+  message(id: ID!): Message! @auth(required_scopes: ["kuvert_read"])
 
   """
   Conversations of the visible mailboxes (paginated, filterable, orderable).
   """
-  threads(filters: ThreadFilter, ordering: [ThreadOrder!]! = [], pagination: OffsetPaginationInput): [Thread!]! @auth
+  threads(filters: ThreadFilter, ordering: [ThreadOrder!]! = [], pagination: OffsetPaginationInput): [Thread!]! @auth(required_scopes: ["kuvert_read"])
 
   """A conversation by id."""
-  thread(id: ID!): Thread! @auth
+  thread(id: ID!): Thread! @auth(required_scopes: ["kuvert_read"])
 
   """How many conversations match the filters (for a list header)."""
-  threadsCount(filters: ThreadFilter = null): Int! @auth
+  threadsCount(filters: ThreadFilter = null): Int! @auth(required_scopes: ["kuvert_read"])
 
   """How many messages match the filters."""
-  messagesCount(filters: MessageFilter = null): Int! @auth
+  messagesCount(filters: MessageFilter = null): Int! @auth(required_scopes: ["kuvert_read"])
 
   """The caller's task lists."""
-  taskLists(filters: TaskListFilter, pagination: OffsetPaginationInput): [TaskList!]! @auth
+  taskLists(filters: TaskListFilter, pagination: OffsetPaginationInput): [TaskList!]! @auth(required_scopes: ["kuvert_read"])
 
   """A task list by id."""
-  taskList(id: ID!): TaskList! @auth
+  taskList(id: ID!): TaskList! @auth(required_scopes: ["kuvert_read"])
 
   """
   The caller's tasks (paginated, filterable — `active` is the Inbox view — and orderable).
   """
-  tasks(filters: TaskFilter, ordering: [TaskOrder!]! = [], pagination: OffsetPaginationInput): [Task!]! @auth
+  tasks(filters: TaskFilter, ordering: [TaskOrder!]! = [], pagination: OffsetPaginationInput): [Task!]! @auth(required_scopes: ["kuvert_read"])
 
   """A task by id."""
-  task(id: ID!): Task! @auth
+  task(id: ID!): Task! @auth(required_scopes: ["kuvert_read"])
 
   """How many of the caller's tasks match the filters."""
-  tasksCount(filters: TaskFilter = null): Int! @auth
+  tasksCount(filters: TaskFilter = null): Int! @auth(required_scopes: ["kuvert_read"])
 
   """Categories of the visible mailboxes (filter by `account`)."""
-  categories(filters: CategoryFilter, pagination: OffsetPaginationInput): [Category!]! @auth
+  categories(filters: CategoryFilter, pagination: OffsetPaginationInput): [Category!]! @auth(required_scopes: ["kuvert_read"])
 
   """A category by id."""
-  category(id: ID!): Category! @auth
+  category(id: ID!): Category! @auth(required_scopes: ["kuvert_read"])
 
   """
   Changes made here that have not reached the server yet (pending or failed), oldest first.
   """
-  mailChanges(filters: MailChangeFilter, pagination: OffsetPaginationInput): [MailChange!]! @auth
+  mailChanges(filters: MailChangeFilter, pagination: OffsetPaginationInput): [MailChange!]! @auth(required_scopes: ["kuvert_read"])
 
   """Mail sent through the visible mailboxes, newest first."""
-  outbox(filters: OutgoingMessageFilter, pagination: OffsetPaginationInput): [OutgoingMessage!]! @auth
+  outbox(filters: OutgoingMessageFilter, pagination: OffsetPaginationInput): [OutgoingMessage!]! @auth(required_scopes: ["kuvert_read"])
 
   """A sent message by id."""
-  outgoingMessage(id: ID!): OutgoingMessage! @auth
+  outgoingMessage(id: ID!): OutgoingMessage! @auth(required_scopes: ["kuvert_read"])
 
   """
   Server settings of well-known providers (the one for `address`, when given).
   """
-  mailPresets(address: String): [MailPreset!]! @auth
+  mailPresets(address: String): [MailPreset!]! @auth(required_scopes: ["kuvert_read"])
 
   """Where a login is. No side effect."""
-  authSession(state: String!): AuthSession! @auth
+  authSession(state: String!): AuthSession! @auth(required_scopes: ["kuvert_read"])
 }
 
 """A recipient."""
@@ -1775,7 +1777,7 @@ input StartOAuthLinkInput {
 
 type Subscription {
   """Events whenever a visible mailbox finished syncing."""
-  mailboxSyncs: MailboxSyncEvent! @auth
+  mailboxSyncs: MailboxSyncEvent! @auth(required_scopes: ["kuvert_read"])
 }
 
 """What one mailbox sync did."""
@@ -1997,7 +1999,7 @@ type TaskThread @key(fields: "id", resolvable: true) {
 """
 A conversation: messages linked by In-Reply-To/References, across the mailbox's folders.
 """
-type Thread @key(fields: "id", resolvable: true) {
+type Thread @key(fields: "id", resolvable: true) @identified(by: "@kuvert/thread") {
   id: ID!
 
   """The mailbox the conversation is in."""
