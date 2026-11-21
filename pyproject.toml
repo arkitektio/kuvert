@@ -21,6 +21,8 @@ dependencies = [
 [tool.uv]
 dev-dependencies = [
     "dokker>=2.8",
+    # Stamps the server version the integration tests ran against, and checks it at release.
+    "arkitekt-spec>=12.9",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
     "pytest-aiohttp>=1.0.5,<2",
@@ -36,11 +38,15 @@ include = ["kuvert"]
 exclude = ["**/__pycache__", "tests"]
 typeCheckingMode = "standard"
 
+# `_tested.json` is written by the integration tests (the server version they ran against)
+# and is not in git: named as an artifact, on both, it is shipped all the same.
 [tool.hatch.build.targets.sdist]
 include = ["kuvert"]
+artifacts = ["kuvert/_tested.json"]
 
 [tool.hatch.build.targets.wheel]
 include = ["kuvert"]
+artifacts = ["kuvert/_tested.json"]
 
 
 [tool.ruff.lint]

@@ -8,14 +8,14 @@ ask for the client it returns. An app takes all of it in with
 import os
 from typing import Annotated
 
+from arkitekt_spec.declare.app import AppRegistry
+from arkitekt_spec.declare.widgets import SearchWidget
 from fakts import Alias, Require, TokenLoader
 from fakts.contrib.rath.auth import FaktsAuthLink
 from rath.links.aiohttp import AIOHttpLink
 from rath.links.compose import compose
 from rath.links.graphql_ws import GraphQLWSLink
 from rath.links.split import SplitLink
-from arkitekt_spec.declare.app import AppRegistry
-from arkitekt_spec.declare.widgets import SearchWidget
 
 from graphql import OperationType
 from kuvert.api.schema import (
@@ -44,6 +44,17 @@ registry = AppRegistry()
 """What kuvert brings to an app: its service, and the types it can send by id."""
 
 
+try:
+    from arkitekt_spec.declare.tested import tested_against
+except ImportError:
+    # kuvert names no arkitekt-spec of its own (arkitekt brings one): one before 12.9
+    # reads no stamp, and its Require takes no version.
+    WANTED: dict[str, str] = {}
+else:
+    WANTED = {"version": tested} if (tested := tested_against("kuvert")) else {}
+"""What this release wants of the kuvert server: the one its release job tested it against."""
+
+
 @registry.service(
     schema=build_relative_path("api", "schema.graphql"),
     turms=build_relative_path("api", "project.json"),
@@ -54,6 +65,7 @@ def kuvert(
         Require(
             "live.arkitekt.kuvert",
             "Where the linked mailboxes and their mail are served",
+            **WANTED,
         ),
     ],
     tokens: TokenLoader,
