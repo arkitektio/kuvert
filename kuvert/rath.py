@@ -1,4 +1,5 @@
 from types import TracebackType
+from typing import TypeVar
 
 from pydantic import Field
 from rath import rath
@@ -16,6 +17,9 @@ class KuvertLinkComposition(TypedComposedLink):
     split: SplitLink
 
 
+KuvertRathT = TypeVar("KuvertRathT", bound="KuvertRath")
+
+
 class KuvertRath(rath.Rath):
     """Kuvert Rath
 
@@ -23,7 +27,7 @@ class KuvertRath(rath.Rath):
     :class:`kuvert.kuvert.Kuvert` client; calls go through that client.
     """
 
-    async def __aenter__(self):
+    async def __aenter__(self: KuvertRathT) -> KuvertRathT:
         """Enter the client.
 
         Entering does not make it "the current client": nothing is. Calls go
