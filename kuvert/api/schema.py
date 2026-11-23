@@ -422,6 +422,7 @@ class MailChangeFilter(BaseModel):
         default=None,
     )
     account: ID | None = None
+    accounts: tuple[ID, ...] | None = None
     state: MailChangeState | None = None
     kind: MailChangeKind | None = None
     message: ID | None = None
@@ -460,6 +461,13 @@ class MailFolderFilter(BaseModel):
         serialization_alias="syncEnabled",
         default=None,
     )
+    selectable: bool | None = None
+    exists_on_server: bool | None = Field(
+        validation_alias=AliasChoices("exists_on_server", "existsOnServer"),
+        serialization_alias="existsOnServer",
+        default=None,
+    )
+    search: str | None = None
     model_config = ConfigDict(
         frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
     )
@@ -474,6 +482,18 @@ class MailProviderFilter(BaseModel):
     kind's ``settings`` hold is :mod:`mail.providers`'s to validate; a kind needing other
     settings needs no migration."""
 
+    in_collaboration: ID | None = Field(
+        validation_alias=AliasChoices("in_collaboration", "inCollaboration"),
+        serialization_alias="inCollaboration",
+        default=None,
+        description="Only what is in this collaboration (its key): put in, or part of what was",
+    )
+    created_under: ID | None = Field(
+        validation_alias=AliasChoices("created_under", "createdUnder"),
+        serialization_alias="createdUnder",
+        default=None,
+        description="Only what the workflow (its root task id) created",
+    )
     and_: "MailProviderFilter | None" = Field(
         validation_alias=AliasChoices("and_", "AND"),
         serialization_alias="AND",
@@ -506,6 +526,18 @@ class MailProviderFilter(BaseModel):
 class MessageFilter(BaseModel):
     """One message in one folder. A copy in another folder is another row with the same ``message_id``."""
 
+    in_collaboration: ID | None = Field(
+        validation_alias=AliasChoices("in_collaboration", "inCollaboration"),
+        serialization_alias="inCollaboration",
+        default=None,
+        description="Only what is in this collaboration (its key): put in, or part of what was",
+    )
+    created_under: ID | None = Field(
+        validation_alias=AliasChoices("created_under", "createdUnder"),
+        serialization_alias="createdUnder",
+        default=None,
+        description="Only what the workflow (its root task id) created",
+    )
     and_: "MessageFilter | None" = Field(
         validation_alias=AliasChoices("and_", "AND"),
         serialization_alias="AND",
@@ -536,6 +568,7 @@ class MessageFilter(BaseModel):
         default=None,
     )
     thread: ID | None = None
+    threads: tuple[ID, ...] | None = None
     unread: bool | None = None
     flagged: bool | None = None
     has_flag: str | None = Field(
@@ -642,10 +675,14 @@ MessageOrder = (
 
 
 class MoveMessagesInput(BaseModel):
-    """Move messages to another folder of their mailbox."""
+    """Move messages to another folder of their mailbox: one `folder`, or each message's own mailbox's folder of a `role` (Archive, Junk, ...)."""
 
     messages: tuple[ID, ...]
-    folder: ID
+    folder: ID | None = None
+    role: FolderRole | None = Field(
+        default=None,
+        description="Instead of `folder`: the folder of this role in each message's mailbox (messages of several mailboxes move at once).",
+    )
     model_config = ConfigDict(
         frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
     )
@@ -665,6 +702,18 @@ class OffsetPaginationInput(BaseModel):
 class OutgoingMessageFilter(BaseModel):
     """A message sent through a mailbox's SMTP server: what was asked, and what happened."""
 
+    in_collaboration: ID | None = Field(
+        validation_alias=AliasChoices("in_collaboration", "inCollaboration"),
+        serialization_alias="inCollaboration",
+        default=None,
+        description="Only what is in this collaboration (its key): put in, or part of what was",
+    )
+    created_under: ID | None = Field(
+        validation_alias=AliasChoices("created_under", "createdUnder"),
+        serialization_alias="createdUnder",
+        default=None,
+        description="Only what the workflow (its root task id) created",
+    )
     and_: "OutgoingMessageFilter | None" = Field(
         validation_alias=AliasChoices("and_", "AND"),
         serialization_alias="AND",
@@ -851,6 +900,15 @@ class TaskListFilter(BaseModel):
     )
 
 
+class TaskOrderPinned(BaseModel):
+    """'pinned' variant of the @oneOf input 'TaskOrder'"""
+
+    pinned: Ordering
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", populate_by_name=True, use_enum_values=True
+    )
+
+
 class TaskOrderPosition(BaseModel):
     """'position' variant of the @oneOf input 'TaskOrder'"""
 
@@ -905,7 +963,8 @@ class TaskOrderTitle(BaseModel):
 
 
 TaskOrder = (
-    TaskOrderPosition
+    TaskOrderPinned
+    | TaskOrderPosition
     | TaskOrderDueAt
     | TaskOrderCreatedAt
     | TaskOrderUpdatedAt
@@ -916,6 +975,18 @@ TaskOrder = (
 class ThreadFilter(BaseModel):
     """A conversation: messages linked by In-Reply-To/References, across the mailbox's folders."""
 
+    in_collaboration: ID | None = Field(
+        validation_alias=AliasChoices("in_collaboration", "inCollaboration"),
+        serialization_alias="inCollaboration",
+        default=None,
+        description="Only what is in this collaboration (its key): put in, or part of what was",
+    )
+    created_under: ID | None = Field(
+        validation_alias=AliasChoices("created_under", "createdUnder"),
+        serialization_alias="createdUnder",
+        default=None,
+        description="Only what the workflow (its root task id) created",
+    )
     and_: "ThreadFilter | None" = Field(
         validation_alias=AliasChoices("and_", "AND"),
         serialization_alias="AND",
@@ -2759,7 +2830,7 @@ class RetryMailChangesMutation(BaseModel):
     """No documentation found for this operation."""
 
     retry_mail_changes: tuple[MailChange, ...] = Field(alias="retryMailChanges")
-    "Queue failed changes again."
+    "Queue failed changes again: these, or every failed change of a mailbox."
 
     class Arguments(BaseModel):
         """Arguments for RetryMailChanges"""
@@ -4877,7 +4948,8 @@ class KuvertApi:
     async def amove_messages(
         self,
         messages: Iterable[IDCoercible],
-        folder: IDCoercible,
+        folder: IDCoercible | None | UnsetType = UNSET,
+        role: FolderRole | None | UnsetType = UNSET,
         task: TaskLike | None = None,
     ) -> tuple[ListMessage, ...]:
         """MoveMessages
@@ -4886,7 +4958,8 @@ class KuvertApi:
 
         Args:
             messages: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required) (list) (required)
-            folder: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            folder: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID.
+            role: Instead of `folder`: the folder of this role in each message's mailbox (messages of several mailboxes move at once).
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
@@ -4895,7 +4968,10 @@ class KuvertApi:
         variables: dict[str, builtins.object] = {}
         _input: dict[str, builtins.object] = {}
         _input["messages"] = messages
-        _input["folder"] = folder
+        if folder is not UNSET:
+            _input["folder"] = folder
+        if role is not UNSET:
+            _input["role"] = role
         variables["input"] = _input
         return (
             await self.aexecute(MoveMessagesMutation, variables, task=task)
@@ -4904,7 +4980,8 @@ class KuvertApi:
     def move_messages(
         self,
         messages: Iterable[IDCoercible],
-        folder: IDCoercible,
+        folder: IDCoercible | None | UnsetType = UNSET,
+        role: FolderRole | None | UnsetType = UNSET,
         task: TaskLike | None = None,
     ) -> tuple[ListMessage, ...]:
         """MoveMessages
@@ -4913,7 +4990,8 @@ class KuvertApi:
 
         Args:
             messages: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required) (list) (required)
-            folder: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID. (required)
+            folder: The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `"4"`) or integer (such as `4`) input value will be accepted as an ID.
+            role: Instead of `folder`: the folder of this role in each message's mailbox (messages of several mailboxes move at once).
             task (rath.task.TaskLike, optional): The task this call is made for; the ambient one by default.
 
         Returns:
@@ -4922,7 +5000,10 @@ class KuvertApi:
         variables: dict[str, builtins.object] = {}
         _input: dict[str, builtins.object] = {}
         _input["messages"] = messages
-        _input["folder"] = folder
+        if folder is not UNSET:
+            _input["folder"] = folder
+        if role is not UNSET:
+            _input["role"] = role
         variables["input"] = _input
         return self.execute(MoveMessagesMutation, variables, task=task).move_messages
 
@@ -5141,7 +5222,7 @@ class KuvertApi:
     ) -> tuple[MailChange, ...]:
         """RetryMailChanges
 
-        Queue failed changes again.
+        Queue failed changes again: these, or every failed change of a mailbox.
 
         Args:
             changes (list[ID]): No description
@@ -5161,7 +5242,7 @@ class KuvertApi:
     ) -> tuple[MailChange, ...]:
         """RetryMailChanges
 
-        Queue failed changes again.
+        Queue failed changes again: these, or every failed change of a mailbox.
 
         Args:
             changes (list[ID]): No description

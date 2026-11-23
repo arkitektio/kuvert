@@ -10,6 +10,20 @@ schema @link(url: "https://specs.apollo.dev/federation/v2.11", import: ["@key"])
   subscription: Subscription
 }
 
+"""Objects to put in a collaboration at once: all of them, or none"""
+input AddManyToCollaborationInput {
+  """The collaboration's key (lok's)"""
+  collaboration: ID!
+
+  """What to put in; a whole before its parts"""
+  objects: [CollaborationObjectRef!]!
+
+  """
+  The collaboration's name, kept here when these are the first things put in
+  """
+  name: String = null
+}
+
 """A mail address with its display name."""
 type Address {
   """The display name (may be empty)."""
@@ -256,6 +270,87 @@ Where a category lives. LOCAL: Only here; the server never sees it; KEYWORD: As 
 enum CategorySync {
   LOCAL
   KEYWORD
+}
+
+"""
+What a guest granted it sees of the organization: the objects put in it, and what is part of them.
+"""
+type Collaboration {
+  id: ID!
+  name: String!
+  description: String
+  createdAt: DateTime!
+
+  """
+  The collaboration's key across the hub: what lok grants, and what names it in every service
+  """
+  key: ID!
+
+  """
+  What is in the collaboration, oldest first; what is part of these is in it too. `brought` keeps what was put in by hand (false) or only what came along with it (true)
+  """
+  items(brought: Boolean = null, pagination: OffsetPaginationInput = null): [CollaborationItem!]!
+
+  """
+  How many objects are in the collaboration: all of them, or (`brought`) only those put in by hand (false) or only those that came along with one (true)
+  """
+  itemCount(brought: Boolean = null): Int!
+}
+
+"""
+One object in a collaboration: put there, or brought along with one that needs it to be seen.
+"""
+type CollaborationItem {
+  id: ID!
+
+  """The object's id, in its structure"""
+  objectId: String!
+  addedAt: DateTime!
+
+  """The structure the object is known by across the hub: @mikro/scene"""
+  identifier: String
+
+  """
+  Whether it is in the collaboration only as what another object in it needs to be seen
+  """
+  brought: Boolean!
+}
+
+"""An object to put in, or take out of, a collaboration"""
+input CollaborationObjectInput {
+  """The collaboration's key (lok's)"""
+  collaboration: ID!
+
+  """The structure the object is known by: @mikro/scene"""
+  identifier: String!
+
+  """The object's id"""
+  object: ID!
+
+  """
+  The collaboration's name, kept here when this is the first thing put in
+  """
+  name: String = null
+}
+
+"""An object, by its structure and id"""
+input CollaborationObjectRef {
+  """The structure the object is known by: @mikro/scene"""
+  identifier: String!
+
+  """The object's id"""
+  object: ID!
+}
+
+"""
+How many collaborations the organization has (a guest: theirs), and how much is in them
+"""
+type CollaborationStats {
+  """How many collaborations"""
+  count: Int!
+
+  """How many objects are in them altogether, brought along ones included"""
+  itemCount: Int!
 }
 
 """Finish (REDIRECT) or advance (POLL) a started login."""
@@ -765,6 +860,7 @@ input MailChangeFilter {
   NOT: MailChangeFilter
   DISTINCT: Boolean
   account: ID
+  accounts: [ID!]
   state: MailChangeState
   kind: MailChangeKind
   message: ID
@@ -786,6 +882,22 @@ Where a queued change is (a pushed one is gone). PENDING: Waiting to be pushed (
 enum MailChangeState {
   PENDING
   FAILED
+}
+
+"""
+Where a mailbox's queue of changes stands, after something queued, pushed, failed, retried or undid changes.
+"""
+type MailChangesEvent {
+  accountId: ID!
+
+  """Changes still waiting."""
+  pending: Int!
+
+  """Changes that did not reach the server."""
+  failed: Int!
+
+  """Changes that reached the server in the pass that caused this event."""
+  pushed: Int!
 }
 
 """
@@ -883,6 +995,9 @@ input MailFolderFilter {
   account: ID
   role: FolderRole
   syncEnabled: Boolean
+  selectable: Boolean
+  existsOnServer: Boolean
+  search: String
 }
 
 """
@@ -968,6 +1083,13 @@ kind's ``settings`` hold is :mod:`mail.providers`'s to validate; a kind needing 
 settings needs no migration.
 """
 input MailProviderFilter {
+  """
+  Only what is in this collaboration (its key): put in, or part of what was
+  """
+  inCollaboration: ID
+
+  """Only what the workflow (its root task id) created"""
+  createdUnder: ID
   AND: MailProviderFilter
   OR: MailProviderFilter
   NOT: MailProviderFilter
@@ -1149,6 +1271,13 @@ type Message @key(fields: "id", resolvable: true) @identified(by: "@kuvert/messa
 One message in one folder. A copy in another folder is another row with the same ``message_id``.
 """
 input MessageFilter {
+  """
+  Only what is in this collaboration (its key): put in, or part of what was
+  """
+  inCollaboration: ID
+
+  """Only what the workflow (its root task id) created"""
+  createdUnder: ID
   AND: MessageFilter
   OR: MessageFilter
   NOT: MessageFilter
@@ -1159,6 +1288,7 @@ input MessageFilter {
   folder: ID
   folderRole: FolderRole
   thread: ID
+  threads: [ID!]
   unread: Boolean
   flagged: Boolean
   hasFlag: String
@@ -1189,13 +1319,45 @@ input MessageOrder @oneOf {
   size: Ordering
 }
 
-"""Move messages to another folder of their mailbox."""
+"""
+Move messages to another folder of their mailbox: one `folder`, or each message's own mailbox's folder of a `role` (Archive, Junk, ...).
+"""
 input MoveMessagesInput {
   messages: [ID!]!
-  folder: ID!
+  folder: ID = null
+
+  """
+  Instead of `folder`: the folder of this role in each message's mailbox (messages of several mailboxes move at once).
+  """
+  role: FolderRole = null
 }
 
 type Mutation {
+  """
+  Put a conversation, a message or sent mail in a collaboration (lok's, by its key) for its guests to read: a conversation brings its messages as they are now, a message its attachments. Never a mailbox or a provider. The first thing put in makes kuvert's row of the collaboration.
+  """
+  addToCollaboration(input: CollaborationObjectInput!): Collaboration! @auth(required_scopes: ["kuvert_share"], any_role_of: ["kuvert_editor"])
+
+  """
+  Put several conversations, messages or sent mails in a collaboration at once, each with what it needs to be read; all or none.
+  """
+  addManyToCollaboration(input: AddManyToCollaborationInput!): Collaboration! @auth(required_scopes: ["kuvert_share"], any_role_of: ["kuvert_editor"])
+
+  """
+  Put the mail a workflow (its root task) sent, through mailboxes the caller sees, in a collaboration, as it is now. Messages and conversations come from the mail server and record no workflow: they are reported unknown. `dryRun` only says what would be put in.
+  """
+  shareWorkflow(input: ShareWorkflowInput!): WorkflowShare! @auth(required_scopes: ["kuvert_share"], any_role_of: ["kuvert_editor"])
+
+  """
+  Take mail out of a collaboration, with what it brought that nothing else there needs.
+  """
+  removeFromCollaboration(input: CollaborationObjectInput!): Collaboration! @auth(required_scopes: ["kuvert_share"], any_role_of: ["kuvert_editor"])
+
+  """
+  Take everything kuvert holds in a collaboration (by its key) out of it: its guests read none of it here any more. lok's collaboration and its grants stay.
+  """
+  deleteCollaboration(key: ID!): ID! @auth(required_scopes: ["kuvert_share"], any_role_of: ["kuvert_editor"])
+
   """Admins: set up an IMAP provider, with fixed servers or open to any."""
   createServerProvider(input: CreateServerProviderInput!): MailProvider! @auth(required_scopes: ["kuvert_providers"], any_role_of: ["kuvert_admin"])
 
@@ -1286,11 +1448,18 @@ type Mutation {
   """
   revertMessagesToServer(messages: [ID!]!): [Message!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
-  """Queue failed changes again."""
-  retryMailChanges(changes: [ID!]!): [MailChange!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
+  """
+  Queue failed changes again: these, or every failed change of a mailbox.
+  """
+  retryMailChanges(changes: [ID!] = null, account: ID = null): [MailChange!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Push a mailbox's due changes now."""
   pushMailChanges(account: ID!): PushResult! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
+
+  """
+  Push the due changes of several mailboxes now: these, or every visible one with pending changes.
+  """
+  pushAllMailChanges(accounts: [ID!] = null): [PushResult!]! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
 
   """Create a category of a mailbox."""
   createCategory(input: CreateCategoryInput!): Category! @auth(required_scopes: ["kuvert_write"], any_role_of: ["kuvert_editor"])
@@ -1466,6 +1635,13 @@ type OutgoingMessage @key(fields: "id", resolvable: true) @identified(by: "@kuve
 A message sent through a mailbox's SMTP server: what was asked, and what happened.
 """
 input OutgoingMessageFilter {
+  """
+  Only what is in this collaboration (its key): put in, or part of what was
+  """
+  inCollaboration: ID
+
+  """Only what the workflow (its root task id) created"""
+  createdUnder: ID
   AND: OutgoingMessageFilter
   OR: OutgoingMessageFilter
   NOT: OutgoingMessageFilter
@@ -1556,6 +1732,19 @@ type Query {
   _service: _Service!
 
   """
+  The organization's collaborations kuvert holds mail in (a guest: the ones granted to them).
+  """
+  collaborations(pagination: OffsetPaginationInput = null): [Collaboration!]! @auth(required_scopes: ["kuvert_read"])
+
+  """What kuvert holds in a collaboration, by its key (lok's)."""
+  collaboration(key: ID!): Collaboration! @auth(required_scopes: ["kuvert_read"])
+
+  """
+  Count the collaborations `collaborations` lists, and the objects in them.
+  """
+  collaborationsStats: CollaborationStats! @auth(required_scopes: ["kuvert_read"])
+
+  """
   The providers the organization set up; every mailbox is linked through one.
   """
   mailProviders(filters: MailProviderFilter, pagination: OffsetPaginationInput): [MailProvider!]! @auth(required_scopes: ["kuvert_read"])
@@ -1629,6 +1818,11 @@ type Query {
   Changes made here that have not reached the server yet (pending or failed), oldest first.
   """
   mailChanges(filters: MailChangeFilter, pagination: OffsetPaginationInput): [MailChange!]! @auth(required_scopes: ["kuvert_read"])
+
+  """
+  How many queued changes match the filters (the same as `mailChanges`), past any page.
+  """
+  mailChangesCount(filters: MailChangeFilter = null): Int! @auth(required_scopes: ["kuvert_read"])
 
   """Mail sent through the visible mailboxes, newest first."""
   outbox(filters: OutgoingMessageFilter, pagination: OffsetPaginationInput): [OutgoingMessage!]! @auth(required_scopes: ["kuvert_read"])
@@ -1744,6 +1938,51 @@ input ShareMailAccountInput {
   users: [ID!] = null
 }
 
+"""Put what a workflow created in a collaboration, as it is now"""
+input ShareWorkflowInput {
+  """The collaboration's key (lok's)"""
+  collaboration: ID!
+
+  """
+  The workflow: the id of the task a person started, the root of every task it caused
+  """
+  rootTask: ID!
+
+  """Only say what would be put in, and what left out"""
+  dryRun: Boolean! = false
+
+  """The collaboration's name, kept here when this puts the first things in"""
+  name: String = null
+}
+
+"""An object, by its structure and id"""
+type SharedObject {
+  """The structure the object is known by: @mikro/scene"""
+  identifier: String
+
+  """The object's id"""
+  object: ID!
+}
+
+"""
+Created in the workflow, but part of something made before it that is not shared: left out
+"""
+type SkippedObject {
+  """The structure the object is known by"""
+  identifier: String
+
+  """The object's id"""
+  object: ID!
+
+  """The structure of what it is part of"""
+  wholeIdentifier: String
+
+  """
+  The id of what it is part of: put that in, and share the workflow again, to bring it
+  """
+  whole: ID!
+}
+
 """Hide tasks from the active view until a time; null wakes them now."""
 input SnoozeTasksInput {
   tasks: [ID!]!
@@ -1778,6 +2017,16 @@ input StartOAuthLinkInput {
 type Subscription {
   """Events whenever a visible mailbox finished syncing."""
   mailboxSyncs: MailboxSyncEvent! @auth(required_scopes: ["kuvert_read"])
+
+  """
+  Where a visible mailbox's queue of changes stands, whenever something queues, pushes, fails, retries or undoes a change.
+  """
+  mailChanges(account: ID = null): MailChangesEvent! @auth(required_scopes: ["kuvert_read"])
+
+  """
+  A login as it is now, then whenever it changes, until it is no longer PENDING. Only its starter may watch it.
+  """
+  authSession(state: String!): AuthSession! @auth(required_scopes: ["kuvert_read"])
 }
 
 """What one mailbox sync did."""
@@ -1949,6 +2198,7 @@ input TaskListFilter {
 }
 
 input TaskOrder @oneOf {
+  pinned: Ordering
   position: Ordering
   dueAt: Ordering
   createdAt: Ordering
@@ -2050,6 +2300,13 @@ type Thread @key(fields: "id", resolvable: true) @identified(by: "@kuvert/thread
 A conversation: messages linked by In-Reply-To/References, across the mailbox's folders.
 """
 input ThreadFilter {
+  """
+  Only what is in this collaboration (its key): put in, or part of what was
+  """
+  inCollaboration: ID
+
+  """Only what the workflow (its root task id) created"""
+  createdUnder: ID
   AND: ThreadFilter
   OR: ThreadFilter
   NOT: ThreadFilter
@@ -2261,6 +2518,33 @@ enum Visibility {
   PRIVATE
   SHARED
   ORGANIZATION
+}
+
+"""
+What sharing a workflow put in a collaboration here (or, tried, would put in)
+"""
+type WorkflowShare {
+  """The collaboration's key"""
+  collaboration: ID!
+
+  """Whether nothing was written"""
+  dryRun: Boolean!
+
+  """Put in, with what each needs to be seen"""
+  added: [SharedObject!]!
+
+  """
+  How many parts came along with their whole, without being put in themselves
+  """
+  covered: Int!
+
+  """Left out: parts of something made before the workflow and not shared"""
+  skipped: [SkippedObject!]!
+
+  """
+  Structures here that cannot say what created their objects: not looked at
+  """
+  unknown: [String!]!
 }
 
 scalar _Any
