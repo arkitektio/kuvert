@@ -73,6 +73,12 @@ projects:
               ID: rath.scalars.IDCoercible
             expand_input_types:
               - input
+        # The generated module meets the arkitekt Python standard: ruff (this
+        # repo's ruff.toml, the shared standard) sorts its imports, drops the
+        # unused ones and formats it; a finding it cannot fix fails the run.
+        processors:
+          - type: turms.processors.ruff.RuffProcessor
+            fix: true
         scalar_definitions:
           uuid: str
           Callback: str

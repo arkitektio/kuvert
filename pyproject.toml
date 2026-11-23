@@ -29,7 +29,7 @@ dev = [
     "pytest-cov>=5.0.0,<6",
     "python-semantic-release>=9.21.1",
     "ruff==0.17.6",
-    "turms>=3.0",
+    "turms>=3.1.0",
     "basedpyright==1.40.2",
 ]
 
