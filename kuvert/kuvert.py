@@ -1,8 +1,12 @@
 """The base client for kuvert"""
 
+import os
 from collections.abc import AsyncGenerator, Generator
-from typing import Any
+from typing import Annotated, Any, Self
 
+from arkitekt_spec.declare.client import client
+from arkitekt_spec.declare.tested import tested_against
+from arkitekt_spec.declare.wiring import Alias, Require, TokenLoader
 from koil import unkoil, unkoil_gen
 from koil.composition import Composition
 from pydantic import Field
@@ -13,7 +17,16 @@ from rath.turms.funcs import TOperation
 from kuvert.api.schema import KuvertApi
 from kuvert.rath import KuvertRath
 
+TESTED = tested_against("kuvert")
+"""The kuvert server this release wants: the one its release job tested it against."""
 
+_API = os.path.join(os.path.dirname(__file__), "api")
+
+
+@client(
+    schema=os.path.join(_API, "schema.graphql"),
+    turms=os.path.join(_API, "project.json"),
+)
 class Kuvert(Composition, KuvertApi):
     """Kuvert
 
@@ -30,6 +43,49 @@ class Kuvert(Composition, KuvertApi):
         ...,
         description="The Rath client used to interact with the Kuvert API.",
     )
+
+    @classmethod
+    def from_fakts(
+        cls,
+        kuvert: Annotated[
+            Alias,
+            Require(
+                "live.arkitekt.kuvert",
+                "Where the linked mailboxes and their mail are served",
+                version=TESTED,
+            ),
+        ],
+        tokens: TokenLoader,
+    ) -> Self:
+        """Built by a run: talks to the resolved kuvert."""
+        from fakts.contrib.rath.auth import FaktsAuthLink
+        from rath.links.aiohttp import AIOHttpLink
+        from rath.links.compose import compose
+        from rath.links.graphql_ws import GraphQLWSLink
+        from rath.links.split import SplitLink
+
+        from graphql import OperationType
+
+        return cls(
+            rath=KuvertRath(
+                link=compose(
+                    FaktsAuthLink(token_loader=tokens),
+                    SplitLink(
+                        left=AIOHttpLink(
+                            endpoint_url=kuvert.to_http_path("graphql"),
+                            proxy=kuvert.proxy,
+                            ssl_context=kuvert.ssl_context(),
+                        ),
+                        right=GraphQLWSLink(
+                            ws_endpoint_url=kuvert.to_ws_path("graphql"),
+                            proxy=kuvert.proxy,
+                            ssl_context=kuvert.ssl_context(),
+                        ),
+                        split=lambda o: o.node.operation != OperationType.SUBSCRIPTION,
+                    ),
+                ),
+            ),
+        )
 
     @staticmethod
     def _serialize(

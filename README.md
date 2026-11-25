@@ -17,14 +17,13 @@ Every kuvert operation is a method of the `Kuvert` client, in a blocking and an
 
 ### In an arkitekt app
 
-The client is injected by annotation. Add the service to your app and ask for
-`kuvert: Kuvert`:
+The client is injected by annotation: ask for `kuvert: Kuvert`.
 
 ```python
 from arkitekt import App, run
-from kuvert import Kuvert, kuvert_service
+from kuvert import Kuvert
 
-app = App("mail-digest", "0.1.0", services=[kuvert_service])
+app = App("mail-digest", "0.1.0")
 
 
 @app.action
@@ -46,10 +45,10 @@ and return them directly, and a trigger on a kuvert signal hands them over.
 ### From a script
 
 ```python
-from arkitekt import easy
-from kuvert import kuvert_service
+from arkitekt import connect
+from kuvert import Kuvert
 
-with easy("my-script", kuvert_service) as kuvert:
+with connect(Kuvert) as kuvert:
     for account in kuvert.list_mail_accounts():
         print(account.email_address, account.unread_count)
 ```

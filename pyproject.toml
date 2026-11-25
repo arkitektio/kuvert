@@ -10,19 +10,16 @@ dependencies = [
     "koil>=1.0.0",
     "rath>=4.1.1",
     "websockets>=15.0.1",
+    # The client declares itself (@client, @structure); a run builds it with fakts.
+    "arkitekt-spec>=14",
 ]
-
-[project.optional-dependencies]
-# The arkitekt integration (kuvert.arkitekt) has no extra of its own: arkitekt
-# depends on kuvert and brings fakts/rekuest itself -- the guarded import in
-# __init__ lights up when it is installed alongside.
 
 
 [dependency-groups]
 dev = [
     "dokker>=2.8",
     # Stamps the server version the integration tests ran against, and checks it at release.
-    "arkitekt-spec>=12.9",
+    "arkitekt-spec>=14",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
     "pytest-aiohttp>=1.0.5,<2",
