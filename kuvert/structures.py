@@ -3,6 +3,7 @@
 Imported by ``kuvert/__init__``: an app using ``Kuvert`` takes every one of them.
 """
 
+from arkitekt_spec.actions import AssignWidgetInput
 from arkitekt_spec.declare.structures.declare import structure
 from arkitekt_spec.declare.widgets import SearchWidget
 
@@ -22,7 +23,7 @@ from kuvert.api.schema import (
 from kuvert.kuvert import Kuvert
 
 
-def _search(query: object) -> SearchWidget:
+def _search(query: object) -> AssignWidgetInput:
     """The widget that picks one of these out of the deployment."""
     return SearchWidget(query=query.Meta.document, ward="kuvert")  # type: ignore[attr-defined]
 

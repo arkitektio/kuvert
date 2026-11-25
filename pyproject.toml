@@ -18,6 +18,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "dokker>=2.8",
+    # The binder builds its links with fakts, which an app brings: here for the type check.
+    "fakts>=6.8",
     # Stamps the server version the integration tests ran against, and checks it at release.
     "arkitekt-spec>=14",
     "pytest>=8.3.5",
